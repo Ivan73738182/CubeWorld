@@ -21,7 +21,7 @@ class GameView @JvmOverloads constructor(
 
     // Камера
     private var camX = 0f
-    private var camY = 60f
+    private var camY = 120f
     private var camZ = 0f
     private var camYaw = 0f
     private var camPitch = 0f
@@ -30,9 +30,9 @@ class GameView @JvmOverloads constructor(
     private var playerX = 0f
     private var playerY = 0f
     private var playerZ = 0f
-    private val eyeHeight = 60f
+    private val eyeHeight = 120f
 
-    // Джойстик (левая половина)
+    // Джойстик
     private var joyCenterX = 0f
     private var joyCenterY = 0f
     private var joyRadius = 200f
@@ -43,7 +43,7 @@ class GameView @JvmOverloads constructor(
     private var joyDeltaX = 0f
     private var joyDeltaY = 0f
 
-    // Поворот (правая половина)
+    // Поворот
     private var rotateActive = false
     private var rotateTouchId = -1
     private var lastRotateX = 0f
@@ -91,7 +91,6 @@ class GameView @JvmOverloads constructor(
         screenW = w.toFloat()
         screenH = h.toFloat()
 
-        // Джойстик — левая половина
         joyRadius = minOf(screenW, screenH) * 0.14f
         joyCenterX = joyRadius + 80f
         joyCenterY = screenH - joyRadius - 80f
@@ -113,10 +112,10 @@ class GameView @JvmOverloads constructor(
             Color.parseColor("#2ECC71")
         )
 
-        // Кубы подальше от игрока
-        for (i in 0 until 25) {
-            val angle = i * (360f / 25f) * Math.PI.toFloat() / 180f
-            val dist = 600f + (i % 5) * 250f   // минимум 600 единиц от центра
+        // Кубы вокруг игрока
+        for (i in 0 until 30) {
+            val angle = i * (360f / 30f) * Math.PI.toFloat() / 180f
+            val dist = 500f + (i % 5) * 250f
             val x = cos(angle) * dist
             val z = sin(angle) * dist
             val y = 50f + (i % 3) * 40f
@@ -125,189 +124,212 @@ class GameView @JvmOverloads constructor(
             cubes.add(Cube(x, y, z, size, color))
         }
     }
-// ============ 3D-ПРОЕКЦИЯ ============
 
-private fun project(x: Float, y: Float, z: Float): FloatArray? {
-    val dx = x - camX
-    val dy = y - camY
-    val dz = z - camZ
+    // ============ 3D-ПРОЕКЦИЯ ============
 
-    val yawRad = Math.toRadians(camYaw.toDouble())
-    val cosYaw = cos(yawRad).toFloat()
-    val sinYaw = sin(yawRad).toFloat()
+    private fun project(x: Float, y: Float, z: Float): FloatArray? {
+        val dx = x - camX
+        val dy = y - camY
+        val dz = z - camZ
 
-    val rx = dx * cosYaw - dz * sinYaw
-    val rz = dx * sinYaw + dz * cosYaw
+        val yawRad = Math.toRadians(camYaw.toDouble())
+        val cosYaw = cos(yawRad).toFloat()
+        val sinYaw = sin(yawRad).toFloat()
 
-    val pitchRad = Math.toRadians(camPitch.toDouble())
-    val cosPitch = cos(pitchRad).toFloat()
-    val sinPitch = sin(pitchRad).toFloat()
+        val rx = dx * cosYaw - dz * sinYaw
+        val rz = dx * sinYaw + dz * cosYaw
 
-    val ry = dy * cosPitch - rz * sinPitch
-    val rz2 = dy * sinPitch + rz * cosPitch
+        val pitchRad = Math.toRadians(camPitch.toDouble())
+        val cosPitch = cos(pitchRad).toFloat()
+        val sinPitch = sin(pitchRad).toFloat()
 
-    if (rz2 <= 1f) return null
+        val ry = dy * cosPitch - rz * sinPitch
+        val rz2 = dy * sinPitch + rz * cosPitch
 
-    val fov = 500f
-    val screenX = screenW / 2f + (rx * fov / rz2)
-    val screenY = screenH / 2f - (ry * fov / rz2)
+        if (rz2 <= 1f) return null
 
-    return floatArrayOf(screenX, screenY, rz2)
-}
+        val fov = 500f
+        val screenX = screenW / 2f + (rx * fov / rz2)
+        val screenY = screenH / 2f - (ry * fov / rz2)
 
-private fun drawCube(canvas: Canvas, cube: Cube) {
-    val s = cube.size / 2f
-
-    val vertices = arrayOf(
-        floatArrayOf(cube.x - s, cube.y - s, cube.z - s),
-        floatArrayOf(cube.x + s, cube.y - s, cube.z - s),
-        floatArrayOf(cube.x + s, cube.y - s, cube.z + s),
-        floatArrayOf(cube.x - s, cube.y - s, cube.z + s),
-        floatArrayOf(cube.x - s, cube.y + s, cube.z - s),
-        floatArrayOf(cube.x + s, cube.y + s, cube.z - s),
-        floatArrayOf(cube.x + s, cube.y + s, cube.z + s),
-        floatArrayOf(cube.x - s, cube.y + s, cube.z + s)
-    )
-
-    val projected = arrayOfNulls<FloatArray>(8)
-    for (i in 0 until 8) {
-        projected[i] = project(vertices[i][0], vertices[i][1], vertices[i][2])
+        return floatArrayOf(screenX, screenY, rz2)
     }
 
-    if (projected.any { it == null }) return
+    // ============ РИСОВАНИЕ КУБА ============
 
-    val paint = Paint().apply {
-        color = cube.color
-        style = Paint.Style.FILL
-        isAntiAlias = true
-    }
+    private fun drawCube(canvas: Canvas, cube: Cube) {
+        val s = cube.size / 2f
 
-    // Передняя
-    drawFace(canvas, projected[0]!!, projected[1]!!, projected[5]!!, projected[4]!!, paint)
-    // Правая
-    drawFace(canvas, projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!, paint)
-    // Задняя
-    drawFace(canvas, projected[3]!!, projected[2]!!, projected[6]!!, projected[7]!!, paint)
-    // Левая
-    drawFace(canvas, projected[0]!!, projected[3]!!, projected[7]!!, projected[4]!!, paint)
-    // Верхняя
-    drawFace(canvas, projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!, paint)
-}
+        val vertices = arrayOf(
+            floatArrayOf(cube.x - s, cube.y - s, cube.z - s), // 0
+            floatArrayOf(cube.x + s, cube.y - s, cube.z - s), // 1
+            floatArrayOf(cube.x + s, cube.y - s, cube.z + s), // 2
+            floatArrayOf(cube.x - s, cube.y - s, cube.z + s), // 3
+            floatArrayOf(cube.x - s, cube.y + s, cube.z - s), // 4
+            floatArrayOf(cube.x + s, cube.y + s, cube.z - s), // 5
+            floatArrayOf(cube.x + s, cube.y + s, cube.z + s), // 6
+            floatArrayOf(cube.x - s, cube.y + s, cube.z + s)  // 7
+        )
 
-private fun drawFace(canvas: Canvas, p1: FloatArray, p2: FloatArray, p3: FloatArray, p4: FloatArray, paint: Paint) {
-    val path = Path()
-    path.moveTo(p1[0], p1[1])
-    path.lineTo(p2[0], p2[1])
-    path.lineTo(p3[0], p3[1])
-    path.lineTo(p4[0], p4[1])
-    path.close()
-    canvas.drawPath(path, paint)
-}
-
-// ============ КАМЕРА ============
-
-private fun updateCamera() {
-    camX = playerX
-    camY = playerY + eyeHeight
-    camZ = playerZ
-}
-
-// ============ РИСОВАНИЕ ============
-
-override fun onDraw(canvas: Canvas) {
-    super.onDraw(canvas)
-
-    // Небо
-    canvas.drawColor(Color.parseColor("#87CEEB"))
-
-    updateCamera()
-
-    // Земля (рисуем первой, потом кубы)
-    drawGround(canvas)
-
-    // Сортируем кубы — дальние раньше
-    val sortedCubes = cubes
-        .map { cube ->
-            val dx = cube.x - camX
-            val dz = cube.z - camZ
-            cube to (dx * dx + dz * dz)
+        val projected = arrayOfNulls<FloatArray>(8)
+        for (i in 0 until 8) {
+            projected[i] = project(vertices[i][0], vertices[i][1], vertices[i][2])
         }
-        .sortedByDescending { it.second }
-        .map { it.first }
 
-    for (cube in sortedCubes) {
-        drawCube(canvas, cube)
-    }
+        if (projected.any { it == null }) return
 
-    // Джойстик
-    drawJoystick(canvas)
+        // Собираем все 6 граней с их средней глубиной
+        val faces = mutableListOf<Array<Any>>()
 
-    // Точка прицела в центре
-    drawCrosshair(canvas)
+        // Передняя
+        faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[5]!!, projected[4]!!,
+            (projected[0]!![2] + projected[1]!![2] + projected[5]!![2] + projected[4]!![2]) / 4f))
+        // Правая
+        faces.add(arrayOf(projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!,
+            (projected[1]!![2] + projected[2]!![2] + projected[6]!![2] + projected[5]!![2]) / 4f))
+        // Задняя
+        faces.add(arrayOf(projected[3]!!, projected[2]!!, projected[6]!!, projected[7]!!,
+            (projected[3]!![2] + projected[2]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
+        // Левая
+        faces.add(arrayOf(projected[0]!!, projected[3]!!, projected[7]!!, projected[4]!!,
+            (projected[0]!![2] + projected[3]!![2] + projected[7]!![2] + projected[4]!![2]) / 4f))
+        // Верхняя
+        faces.add(arrayOf(projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!,
+            (projected[4]!![2] + projected[5]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
+        // Нижняя
+        faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[2]!!, projected[3]!!,
+            (projected[0]!![2] + projected[1]!![2] + projected[2]!![2] + projected[3]!![2]) / 4f))
 
-    update()
-    invalidate()
-}
+        // Сортируем по глубине — дальние раньше
+        val sorted = faces.sortedByDescending { it[4] as Float }
 
-private fun drawGround(canvas: Canvas) {
-    val gridSize = 500f
-    val range = 4
+        val paint = Paint().apply {
+            color = cube.color
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
 
-    val groundPaint = Paint().apply {
-        style = Paint.Style.FILL
-        isAntiAlias = true
-    }
-    val borderPaint = Paint().apply {
-        color = Color.parseColor("#4A9E4A")
-        style = Paint.Style.STROKE
-        strokeWidth = 2f
-    }
-
-    for (ix in -range..range) {
-        for (iz in -range..range) {
-            val x = ix * gridSize
-            val z = iz * gridSize
-            val half = gridSize / 2f
-
-            val p1 = project(x - half, 0f, z - half) ?: continue
-            val p2 = project(x + half, 0f, z - half) ?: continue
-            val p3 = project(x + half, 0f, z + half) ?: continue
-            val p4 = project(x - half, 0f, z + half) ?: continue
-
-            val isDark = (ix + iz) % 2 == 0
-            groundPaint.color = if (isDark) Color.parseColor("#5DAE5D") else Color.parseColor("#6DBE6D")
-
-            val path = Path()
-            path.moveTo(p1[0], p1[1])
-            path.lineTo(p2[0], p2[1])
-            path.lineTo(p3[0], p3[1])
-            path.lineTo(p4[0], p4[1])
-            path.close()
-            canvas.drawPath(path, groundPaint)
-            canvas.drawPath(path, borderPaint)
+        for (face in sorted) {
+            drawFace(canvas,
+                face[0] as FloatArray,
+                face[1] as FloatArray,
+                face[2] as FloatArray,
+                face[3] as FloatArray,
+                paint)
         }
     }
-}
 
-private fun drawJoystick(canvas: Canvas) {
-    canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBasePaint)
-    canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBorderPaint)
-    canvas.drawCircle(joyKnobX, joyKnobY, joyRadius * 0.4f, joyKnobPaint)
-}
+    private fun drawFace(canvas: Canvas, p1: FloatArray, p2: FloatArray, p3: FloatArray, p4: FloatArray, paint: Paint) {
+        val path = Path()
+        path.moveTo(p1[0], p1[1])
+        path.lineTo(p2[0], p2[1])
+        path.lineTo(p3[0], p3[1])
+        path.lineTo(p4[0], p4[1])
+        path.close()
+        canvas.drawPath(path, paint)
+    }
+    // ============ КАМЕРА ============
 
-private fun drawCrosshair(canvas: Canvas) {
-    val cx = screenW / 2f
-    val cy = screenH / 2f
-    // Кружок
-    canvas.drawCircle(cx, cy, 20f, crosshairPaint)
-    // Точка в центре
-    canvas.drawCircle(cx, cy, 4f, crosshairDotPaint)
-}
+    private fun updateCamera() {
+        camX = playerX
+        camY = playerY + eyeHeight
+        camZ = playerZ
+    }
+
+    // ============ РИСОВАНИЕ СЦЕНЫ ============
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+
+        // Небо
+        canvas.drawColor(Color.parseColor("#87CEEB"))
+
+        updateCamera()
+
+        // Земля
+        drawGround(canvas)
+
+        // Сортируем кубы — дальние раньше
+        val sortedCubes = cubes
+            .map { cube ->
+                val dx = cube.x - camX
+                val dz = cube.z - camZ
+                cube to (dx * dx + dz * dz)
+            }
+            .sortedByDescending { it.second }
+            .map { it.first }
+
+        for (cube in sortedCubes) {
+            drawCube(canvas, cube)
+        }
+
+        // Джойстик
+        drawJoystick(canvas)
+
+        // Точка прицела
+        drawCrosshair(canvas)
+
+        update()
+        invalidate()
+    }
+
+    private fun drawGround(canvas: Canvas) {
+        val gridSize = 500f
+        val range = 4
+
+        val groundPaint = Paint().apply {
+            style = Paint.Style.FILL
+            isAntiAlias = true
+        }
+        val borderPaint = Paint().apply {
+            color = Color.parseColor("#4A9E4A")
+            style = Paint.Style.STROKE
+            strokeWidth = 2f
+        }
+
+        for (ix in -range..range) {
+            for (iz in -range..range) {
+                val x = ix * gridSize
+                val z = iz * gridSize
+                val half = gridSize / 2f
+
+                val p1 = project(x - half, 0f, z - half) ?: continue
+                val p2 = project(x + half, 0f, z - half) ?: continue
+                val p3 = project(x + half, 0f, z + half) ?: continue
+                val p4 = project(x - half, 0f, z + half) ?: continue
+
+                val isDark = (ix + iz) % 2 == 0
+                groundPaint.color = if (isDark) Color.parseColor("#5DAE5D") else Color.parseColor("#6DBE6D")
+
+                val path = Path()
+                path.moveTo(p1[0], p1[1])
+                path.lineTo(p2[0], p2[1])
+                path.lineTo(p3[0], p3[1])
+                path.lineTo(p4[0], p4[1])
+                path.close()
+                canvas.drawPath(path, groundPaint)
+                canvas.drawPath(path, borderPaint)
+            }
+        }
+    }
+
+    private fun drawJoystick(canvas: Canvas) {
+        canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBasePaint)
+        canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBorderPaint)
+        canvas.drawCircle(joyKnobX, joyKnobY, joyRadius * 0.4f, joyKnobPaint)
+    }
+
+    private fun drawCrosshair(canvas: Canvas) {
+        val cx = screenW / 2f
+        val cy = screenH / 2f
+        canvas.drawCircle(cx, cy, 20f, crosshairPaint)
+        canvas.drawCircle(cx, cy, 4f, crosshairDotPaint)
+    }
+
     // ============ ФИЗИКА ============
 
     private fun update() {
         if (joyActive) {
-            // Движение относительно направления камеры (yaw)
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
             val sinYaw = sin(yawRad).toFloat()
@@ -334,13 +356,11 @@ private fun drawCrosshair(canvas: Canvas) {
                 val x = event.x
                 val y = event.y
 
-                // Проверяем левую половину экрана — джойстик
                 if (x < screenW / 2f) {
                     joyActive = true
                     joyTouchId = event.getPointerId(0)
                     updateJoystick(x, y)
                 } else {
-                    // Правая половина — поворот камеры
                     rotateActive = true
                     rotateTouchId = event.getPointerId(0)
                     lastRotateX = x
@@ -349,7 +369,6 @@ private fun drawCrosshair(canvas: Canvas) {
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
-                // Второй палец
                 val index = event.actionIndex
                 val x = event.getX(index)
                 val y = event.getY(index)
@@ -368,7 +387,6 @@ private fun drawCrosshair(canvas: Canvas) {
             }
 
             MotionEvent.ACTION_MOVE -> {
-                // Обходим все активные пальцы
                 for (i in 0 until event.pointerCount) {
                     val id = event.getPointerId(i)
                     val x = event.getX(i)
@@ -390,7 +408,6 @@ private fun drawCrosshair(canvas: Canvas) {
 
             MotionEvent.ACTION_POINTER_UP -> {
                 val id = event.getPointerId(event.actionIndex)
-
                 if (id == joyTouchId) {
                     joyActive = false
                     joyTouchId = -1
@@ -406,7 +423,6 @@ private fun drawCrosshair(canvas: Canvas) {
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                // Все пальцы подняты — сбрасываем
                 joyActive = false
                 rotateActive = false
                 joyTouchId = -1
@@ -439,3 +455,4 @@ private fun drawCrosshair(canvas: Canvas) {
         joyDeltaY = dy / joyRadius
     }
 }
+
