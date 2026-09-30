@@ -45,6 +45,7 @@ class GameView @JvmOverloads constructor(
     // Размеры
     private val groundBlockSize = 100f
     private val cubeSize = 100f
+    private val playerRadius = 30f   // радиус игрока для столкновений
 
     // Джойстик
     private var joyCenterX = 0f
@@ -64,7 +65,7 @@ class GameView @JvmOverloads constructor(
     private var jumpBtnPressed = false
     private var jumpTouchId = -1
 
-    // Кнопка атаки (удар)
+    // Кнопка атаки
     private var attackBtnX = 0f
     private var attackBtnY = 0f
     private var attackBtnRadius = 100f
@@ -80,8 +81,11 @@ class GameView @JvmOverloads constructor(
     // Анимация удара
     private var attackAnimTimer = 0
 
-    // Враги
+    // ===== МИР =====
+    private val walls = mutableListOf<Wall>()   // стены (дома)
     private val enemies = mutableListOf<Enemy>()
+
+    class Wall(val x: Float, val z: Float, val size: Float, val height: Float, val color: Int)
     class Enemy(
         var x: Float,
         var y: Float,
@@ -173,7 +177,7 @@ class GameView @JvmOverloads constructor(
     }
     private val hpTextPaint = Paint().apply {
         color = Color.WHITE
-        textSize = 32f
+        textSize = 28f
         isAntiAlias = true
         isFakeBoldText = true
     }
@@ -188,7 +192,7 @@ class GameView @JvmOverloads constructor(
         color = Color.parseColor("#8B4513")
         style = Paint.Style.STROKE
         strokeWidth = 10f
-        strokeCap = Paint.Style.STROKE.let { Paint.Cap.ROUND }
+        strokeCap = Paint.Cap.ROUND
         isAntiAlias = true
     }
 
@@ -201,44 +205,71 @@ class GameView @JvmOverloads constructor(
         screenW = w.toFloat()
         screenH = h.toFloat()
 
-        // Джойстик
         joyRadius = minOf(screenW, screenH) * 0.14f
         joyCenterX = joyRadius + 80f
         joyCenterY = screenH - joyRadius - 80f
         joyKnobX = joyCenterX
         joyKnobY = joyCenterY
 
-        // Кнопка прыжка
         jumpBtnRadius = minOf(screenW, screenH) * 0.09f
         jumpBtnX = screenW - jumpBtnRadius - 100f
         jumpBtnY = screenH - jumpBtnRadius - 100f
 
-        // Кнопка атаки — над прыжком
         attackBtnRadius = minOf(screenW, screenH) * 0.09f
         attackBtnX = screenW - attackBtnRadius - 100f
         attackBtnY = jumpBtnY - jumpBtnRadius - attackBtnRadius - 30f
     }
 
     private fun setupWorld() {
+        walls.clear()
         enemies.clear()
 
-        // Создаём 5 врагов вокруг игрока
+        // ===== ДОМ 1 — слева =====
+        // Стены дома (квадрат 400x400, стены по краям)
+        val house1X = -600f
+        val house1Z = -400f
+        buildHouse(house1X, house1Z, Color.parseColor("#8B4513"))
+
+        // ===== ДОМ 2 — справа =====
+        val house2X = 600f
+        val house2Z = -400f
+        buildHouse(house2X, house2Z, Color.parseColor("#A0522D"))
+
+        // ===== ВРАГИ =====
         for (i in 0 until 5) {
             val angle = i * (360f / 5f) * Math.PI.toFloat() / 180f
             val dist = 500f + i * 100f
             val x = cos(angle) * dist
             val z = sin(angle) * dist
+            val enemySize = 120f
             enemies.add(
                 Enemy(
                     x = x,
-                    y = cubeSize / 2f,
+                    y = enemySize / 2f,
                     z = z,
-                    size = cubeSize,
+                    size = enemySize,
                     hp = 50,
                     maxHp = 50
                 )
             )
         }
+    }
+
+    // Строим дом (стены по периметру)
+    private fun buildHouse(centerX: Float, centerZ: Float, color: Int) {
+        val halfSize = 250f       // размер дома от центра
+        val wallThickness = 80f   // толщина стен
+        val wallHeight = 200f     // высота стен
+
+        // Верхняя стена
+        walls.add(Wall(centerX, centerZ - halfSize, halfSize * 2 + wallThickness, wallHeight, color))
+        // Нижняя стена (с проёмом в центре — вход)
+        walls.add(Wall(centerX - halfSize / 2 - 30f, centerZ + halfSize, halfSize, wallHeight, color))
+        walls.add(Wall(centerX + halfSize / 2 + 30f, centerZ + halfSize, halfSize, wallHeight, color))
+        // Левая стена
+        walls.add(Wall(centerX - halfSize, centerZ, halfSize * 2 + wallThickness, wallHeight, color))
+        // Правая стена
+        walls.add(Wall(centerX + halfSize, centerZ, halfSize * 2 + wallThickness, wallHeight, color))
     }
 
     // ============ 3D-ПРОЕКЦИЯ ============
@@ -375,19 +406,35 @@ override fun onDraw(canvas: Canvas) {
     // Земля
     drawGround(canvas)
 
-    // Сортируем врагов по глубине
-    val sortedEnemies = enemies
-        .filter { it.hp > 0 }
-        .map { e ->
-            val dx = e.x - camX
-            val dz = e.z - camZ
-            e to (dx * dx + dz * dz)
-        }
-        .sortedByDescending { it.second }
-        .map { it.first }
+    // Стены домов + враги — все в общий список, сортируем по глубине
+    data class DrawItem(val depth: Float, val draw: () -> Unit)
+    val items = mutableListOf<DrawItem>()
 
-    for (e in sortedEnemies) {
-        drawBox(canvas, e.x, e.y, e.z, e.size, e.size, e.size, Color.parseColor("#E94560"))
+    // Стены
+    for (wall in walls) {
+        val dx = wall.x - camX
+        val dz = wall.z - camZ
+        val depth = dx * dx + dz * dz
+        items.add(DrawItem(depth) {
+            drawBox(canvas, wall.x, wall.height / 2f, wall.z,
+                wall.size, wall.height, wall.size, wall.color)
+        })
+    }
+
+    // Враги (живые)
+    for (e in enemies) {
+        if (e.hp <= 0) continue
+        val dx = e.x - camX
+        val dz = e.z - camZ
+        val depth = dx * dx + dz * dz
+        items.add(DrawItem(depth) {
+            drawBox(canvas, e.x, e.y, e.z, e.size, e.size, e.size, Color.parseColor("#E94560"))
+        })
+    }
+
+    // Сортируем — дальние раньше
+    for (item in items.sortedByDescending { it.depth }) {
+        item.draw()
     }
 
     // Джойстик
@@ -402,10 +449,10 @@ override fun onDraw(canvas: Canvas) {
     // Прицел
     drawCrosshair(canvas)
 
-    // Меч (от первого лица — рисуем в правом нижнем углу)
+    // Меч
     drawSword(canvas)
 
-    // HP сверху
+    // HP
     drawHpBars(canvas)
 
     update()
@@ -500,9 +547,7 @@ private fun drawCrosshair(canvas: Canvas) {
     canvas.drawCircle(cx, cy, 4f, crosshairDotPaint)
 }
 
-// Меч в правом нижнем углу (от первого лица)
 private fun drawSword(canvas: Canvas) {
-    // Отступ анимации при ударе
     val swingOffset = if (attackAnimTimer > 0) {
         val progress = (15 - attackAnimTimer) / 15f
         (1f - Math.abs(progress - 0.5f) * 2f) * 80f
@@ -511,49 +556,40 @@ private fun drawSword(canvas: Canvas) {
     val baseX = screenW * 0.85f + swingOffset
     val baseY = screenH * 0.95f - swingOffset
 
-    // Рукоятка (коричневая)
     val handleEndX = baseX - 60f
     val handleEndY = baseY - 60f
     canvas.drawLine(baseX, baseY, handleEndX, handleEndY, swordHandlePaint)
 
-    // Лезвие (серая)
     val bladeEndX = handleEndX - 180f
     val bladeEndY = handleEndY - 180f
     canvas.drawLine(handleEndX, handleEndY, bladeEndX, bladeEndY, swordPaint)
 
-    // Остриё
     canvas.drawCircle(bladeEndX, bladeEndY, 6f, swordPaint)
 }
 
-// Полоски HP
 private fun drawHpBars(canvas: Canvas) {
     val barWidth = 400f
     val barHeight = 40f
-    val margin = 40f
+    val margin = 60f
 
-    // ===== HP героя =====
     val heroBarX = margin
-    val heroBarY = margin
+    val heroBarY = margin + 40f
 
-    // Фон
     canvas.drawRect(heroBarX, heroBarY, heroBarX + barWidth, heroBarY + barHeight, hpBarBgPaint)
 
-    // Заполнение (зелёное)
     val heroFill = playerHp.toFloat() / playerMaxHp * barWidth
     if (heroFill > 0) {
         canvas.drawRect(heroBarX, heroBarY, heroBarX + heroFill, heroBarY + barHeight, hpBarFillPaint)
     }
 
-    // Обводка
     canvas.drawRect(heroBarX, heroBarY, heroBarX + barWidth, heroBarY + barHeight, hpBarBorderPaint)
 
-    // Текст
     canvas.drawText("HP: $playerHp / $playerMaxHp", heroBarX + 10f, heroBarY + barHeight - 8f, hpTextPaint)
 }
     // ============ ФИЗИКА ============
 
     private fun update() {
-        // Горизонтальное движение игрока
+        // ===== Горизонтальное движение игрока =====
         if (joyActive) {
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
@@ -566,11 +602,21 @@ private fun drawHpBars(canvas: Canvas) {
             val worldZ = -moveX * sinYaw + moveZ * cosYaw
 
             val speed = 12f
-            playerX += worldX * speed
-            playerZ += worldZ * speed
+
+            // Пытаемся сдвинуться по X
+            val newX = playerX + worldX * speed
+            if (!collidesWithWall(newX, playerZ)) {
+                playerX = newX
+            }
+
+            // Пытаемся сдвинуться по Z
+            val newZ = playerZ + worldZ * speed
+            if (!collidesWithWall(playerX, newZ)) {
+                playerZ = newZ
+            }
         }
 
-        // Гравитация игрока
+        // ===== Гравитация =====
         velocityY -= gravity
         playerY += velocityY
 
@@ -590,51 +636,80 @@ private fun drawHpBars(canvas: Canvas) {
             val dz = playerZ - enemy.z
             val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
 
-            if (dist > 100f) {
-                // Идём к игроку
+            if (dist > 150f) {
                 val speed = 3f
                 val nx = dx / dist
                 val nz = dz / dist
-                enemy.x += nx * speed
-                enemy.z += nz * speed
+
+                // Враг тоже упирается в стены
+                val newX = enemy.x + nx * speed
+                if (!collidesWithWall(newX, enemy.z)) {
+                    enemy.x = newX
+                }
+                val newZ = enemy.z + nz * speed
+                if (!collidesWithWall(enemy.x, newZ)) {
+                    enemy.z = newZ
+                }
             }
-            // Если близко — стоим (позже будет атака)
         }
 
-        // Анимация удара
+        // ===== Анимация удара =====
         if (attackAnimTimer > 0) {
             attackAnimTimer--
         }
     }
 
+    // ===== СТОЛКНОВЕНИЯ С ТВЁРДЫМИ ОБЪЕКТАМИ =====
+    private fun collidesWithWall(x: Float, z: Float): Boolean {
+        for (wall in walls) {
+            val halfSize = wall.size / 2f
+            val dx = Math.abs(x - wall.x)
+            val dz = Math.abs(z - wall.z)
+
+            if (dx < halfSize + playerRadius && dz < halfSize + playerRadius) {
+                return true
+            }
+        }
+        return false
+    }
+
     // ============ АТАКА ============
 
     private fun doAttack() {
-        // Запускаем анимацию
         attackAnimTimer = 15
 
-        // Проверяем: есть ли враг перед игроком в радиусе 200
         val yawRad = Math.toRadians(camYaw.toDouble())
         val dirX = -sin(yawRad).toFloat()
         val dirZ = cos(yawRad).toFloat()
 
-        // Точка перед игроком
-        val hitX = playerX + dirX * 150f
-        val hitZ = playerZ + dirZ * 150f
+        var bestEnemy: Enemy? = null
+        var bestDist = Float.MAX_VALUE
 
-        // Ищем врага рядом с этой точкой
         for (enemy in enemies) {
             if (enemy.hp <= 0) continue
 
-            val dx = enemy.x - hitX
-            val dz = enemy.z - hitZ
+            val dx = enemy.x - playerX
+            val dz = enemy.z - playerZ
             val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
 
-            if (dist < 150f) {
-                // Удар!
-                enemy.hp -= 25
-                if (enemy.hp < 0) enemy.hp = 0
+            if (dist > 250f) continue
+
+            val enemyDirX = dx / dist
+            val enemyDirZ = dz / dist
+
+            val dot = enemyDirX * dirX + enemyDirZ * dirZ
+
+            if (dot > 0.7f) {
+                if (dist < bestDist) {
+                    bestDist = dist
+                    bestEnemy = enemy
+                }
             }
+        }
+
+        bestEnemy?.let {
+            it.hp -= 25
+            if (it.hp < 0) it.hp = 0
         }
     }
 
@@ -646,7 +721,7 @@ private fun drawHpBars(canvas: Canvas) {
                 val x = event.x
                 val y = event.y
 
-                // Кнопка прыжка
+                // Прыжок
                 val jumpDx = x - jumpBtnX
                 val jumpDy = y - jumpBtnY
                 val jumpDist = Math.sqrt((jumpDx * jumpDx + jumpDy * jumpDy).toDouble()).toFloat()
@@ -658,7 +733,7 @@ private fun drawHpBars(canvas: Canvas) {
                     return true
                 }
 
-                // Кнопка атаки
+                // Атака
                 val attackDx = x - attackBtnX
                 val attackDy = y - attackBtnY
                 val attackDist = Math.sqrt((attackDx * attackDx + attackDy * attackDy).toDouble()).toFloat()
@@ -682,7 +757,7 @@ private fun drawHpBars(canvas: Canvas) {
                     return true
                 }
 
-                // Иначе — поворот
+                // Поворот
                 rotateActive = true
                 rotateTouchId = event.getPointerId(0)
                 lastRotateX = x
