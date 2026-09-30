@@ -19,23 +19,18 @@ class GameView @JvmOverloads constructor(
     private var screenW = 0f
     private var screenH = 0f
 
-    // Камера (от третьего лица)
+    // Камера (от первого лица)
     private var camX = 0f
-    private var camY = 200f
+    private var camY = 120f
     private var camZ = 0f
     private var camYaw = 0f
-    private var camPitch = -15f
+    private var camPitch = 0f
 
-    // Персонаж
+    // Персонаж (камера внутри него)
     private var playerX = 0f
     private var playerY = 0f
     private var playerZ = 0f
-    private val playerWidth = 40f
-    private val playerHeight = 120f
-
-    // Камера — сзади и сверху
-    private val camDistance = 250f
-    private val camHeightOffset = 150f
+    private val eyeHeight = 120f
 
     // Джойстик
     private var joyCenterX = 0f
@@ -186,21 +181,41 @@ class GameView @JvmOverloads constructor(
             projected[i] = project(vertices[i][0], vertices[i][1], vertices[i][2])
         }
 
-        if (projected.any { it == null }) return
+        // Если ВСЕ вершины за камерой — пропускаем куб
+        if (projected.all { it == null }) return
 
         val faces = mutableListOf<Array<Any>>()
-        faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[5]!!, projected[4]!!,
-            (projected[0]!![2] + projected[1]!![2] + projected[5]!![2] + projected[4]!![2]) / 4f))
-        faces.add(arrayOf(projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!,
-            (projected[1]!![2] + projected[2]!![2] + projected[6]!![2] + projected[5]!![2]) / 4f))
-        faces.add(arrayOf(projected[3]!!, projected[2]!!, projected[6]!!, projected[7]!!,
-            (projected[3]!![2] + projected[2]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
-        faces.add(arrayOf(projected[0]!!, projected[3]!!, projected[7]!!, projected[4]!!,
-            (projected[0]!![2] + projected[3]!![2] + projected[7]!![2] + projected[4]!![2]) / 4f))
-        faces.add(arrayOf(projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!,
-            (projected[4]!![2] + projected[5]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
-        faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[2]!!, projected[3]!!,
-            (projected[0]!![2] + projected[1]!![2] + projected[2]!![2] + projected[3]!![2]) / 4f))
+
+        // Передняя
+        if (projected[0] != null && projected[1] != null && projected[5] != null && projected[4] != null) {
+            faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[5]!!, projected[4]!!,
+                (projected[0]!![2] + projected[1]!![2] + projected[5]!![2] + projected[4]!![2]) / 4f))
+        }
+        // Правая
+        if (projected[1] != null && projected[2] != null && projected[6] != null && projected[5] != null) {
+            faces.add(arrayOf(projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!,
+                (projected[1]!![2] + projected[2]!![2] + projected[6]!![2] + projected[5]!![2]) / 4f))
+        }
+        // Задняя
+        if (projected[3] != null && projected[2] != null && projected[6] != null && projected[7] != null) {
+            faces.add(arrayOf(projected[3]!!, projected[2]!!, projected[6]!!, projected[7]!!,
+                (projected[3]!![2] + projected[2]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
+        }
+        // Левая
+        if (projected[0] != null && projected[3] != null && projected[7] != null && projected[4] != null) {
+            faces.add(arrayOf(projected[0]!!, projected[3]!!, projected[7]!!, projected[4]!!,
+                (projected[0]!![2] + projected[3]!![2] + projected[7]!![2] + projected[4]!![2]) / 4f))
+        }
+        // Верхняя
+        if (projected[4] != null && projected[5] != null && projected[6] != null && projected[7] != null) {
+            faces.add(arrayOf(projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!,
+                (projected[4]!![2] + projected[5]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
+        }
+        // Нижняя
+        if (projected[0] != null && projected[1] != null && projected[2] != null && projected[3] != null) {
+            faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[2]!!, projected[3]!!,
+                (projected[0]!![2] + projected[1]!![2] + projected[2]!![2] + projected[3]!![2]) / 4f))
+        }
 
         val sorted = faces.sortedByDescending { it[4] as Float }
 
@@ -229,19 +244,12 @@ class GameView @JvmOverloads constructor(
         path.close()
         canvas.drawPath(path, paint)
     }
-    // ============ КАМЕРА (от третьего лица) ============
+    // ============ КАМЕРА (от первого лица) ============
 
     private fun updateCamera() {
-        // Камера сзади и сверху за персонажем
-        val yawRad = Math.toRadians(camYaw.toDouble())
-
-        // Смещение камеры относительно персонажа
-        val dx = -sin(yawRad).toFloat() * camDistance
-        val dz = -cos(yawRad).toFloat() * camDistance
-
-        camX = playerX + dx
-        camZ = playerZ + dz
-        camY = playerY + camHeightOffset
+        camX = playerX
+        camY = playerY + eyeHeight
+        camZ = playerZ
     }
 
     // ============ РИСОВАНИЕ СЦЕНЫ ============
@@ -271,18 +279,6 @@ class GameView @JvmOverloads constructor(
             drawBox(canvas, cube.x, cube.y, cube.z, cube.size, cube.size, cube.size, cube.color)
         }
 
-        // Персонаж (длинный куб 40x120x40)
-        drawBox(
-            canvas,
-            playerX,
-            playerY + playerHeight / 2f,
-            playerZ,
-            playerWidth,
-            playerHeight,
-            playerWidth,
-            Color.parseColor("#FFFFFF")
-        )
-
         // Джойстик
         drawJoystick(canvas)
 
@@ -293,10 +289,10 @@ class GameView @JvmOverloads constructor(
         invalidate()
     }
 
-    // Земля — вокруг игрока
+    // Земля — вокруг игрока (по целым клеткам)
     private fun drawGround(canvas: Canvas) {
         val gridSize = 500f
-        val range = 6
+        val range = 7
 
         val groundPaint = Paint().apply {
             style = Paint.Style.FILL
@@ -308,6 +304,7 @@ class GameView @JvmOverloads constructor(
             strokeWidth = 2f
         }
 
+        // Центр сетки — всегда "под игроком" (но в целых клетках)
         val centerX = (playerX / gridSize).toInt() * gridSize
         val centerZ = (playerZ / gridSize).toInt() * gridSize
 
@@ -423,7 +420,7 @@ class GameView @JvmOverloads constructor(
                         val dy = y - lastRotateY
                         camYaw += dx * 0.3f
                         camPitch -= dy * 0.3f
-                        camPitch = camPitch.coerceIn(-60f, 20f)
+                        camPitch = camPitch.coerceIn(-60f, 60f)
                         lastRotateX = x
                         lastRotateY = y
                     }
@@ -479,4 +476,3 @@ class GameView @JvmOverloads constructor(
         joyDeltaY = dy / joyRadius
     }
 }
-
