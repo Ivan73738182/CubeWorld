@@ -26,11 +26,15 @@ class GameView @JvmOverloads constructor(
     private var camYaw = 0f
     private var camPitch = 0f
 
-    // Персонаж (камера внутри него)
+    // Персонаж
     private var playerX = 0f
     private var playerY = 0f
     private var playerZ = 0f
     private val eyeHeight = 120f
+
+    // Размер блока земли и кубов (как в Minecraft)
+    private val groundBlockSize = 200f
+    private val cubeSize = 120f
 
     // Джойстик
     private var joyCenterX = 0f
@@ -112,12 +116,13 @@ class GameView @JvmOverloads constructor(
             Color.parseColor("#2ECC71")
         )
 
-        for (i in 0 until 30) {
-            val angle = i * (360f / 30f) * Math.PI.toFloat() / 180f
-            val dist = 400f + (i % 5) * 250f
+        // Кубы — вокруг игрока, маленькие, как блоки
+        for (i in 0 until 40) {
+            val angle = i * (360f / 40f) * Math.PI.toFloat() / 180f
+            val dist = 300f + (i % 6) * 200f
             val x = cos(angle) * dist
             val z = sin(angle) * dist
-            val size = 100f + (i % 3) * 50f
+            val size = cubeSize
             val y = size / 2f
             val color = colors[i % colors.size]
             cubes.add(Cube(x, y, z, size, color))
@@ -181,37 +186,30 @@ class GameView @JvmOverloads constructor(
             projected[i] = project(vertices[i][0], vertices[i][1], vertices[i][2])
         }
 
-        // Если ВСЕ вершины за камерой — пропускаем куб
         if (projected.all { it == null }) return
 
         val faces = mutableListOf<Array<Any>>()
 
-        // Передняя
         if (projected[0] != null && projected[1] != null && projected[5] != null && projected[4] != null) {
             faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[5]!!, projected[4]!!,
                 (projected[0]!![2] + projected[1]!![2] + projected[5]!![2] + projected[4]!![2]) / 4f))
         }
-        // Правая
         if (projected[1] != null && projected[2] != null && projected[6] != null && projected[5] != null) {
             faces.add(arrayOf(projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!,
                 (projected[1]!![2] + projected[2]!![2] + projected[6]!![2] + projected[5]!![2]) / 4f))
         }
-        // Задняя
         if (projected[3] != null && projected[2] != null && projected[6] != null && projected[7] != null) {
             faces.add(arrayOf(projected[3]!!, projected[2]!!, projected[6]!!, projected[7]!!,
                 (projected[3]!![2] + projected[2]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
         }
-        // Левая
         if (projected[0] != null && projected[3] != null && projected[7] != null && projected[4] != null) {
             faces.add(arrayOf(projected[0]!!, projected[3]!!, projected[7]!!, projected[4]!!,
                 (projected[0]!![2] + projected[3]!![2] + projected[7]!![2] + projected[4]!![2]) / 4f))
         }
-        // Верхняя
         if (projected[4] != null && projected[5] != null && projected[6] != null && projected[7] != null) {
             faces.add(arrayOf(projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!,
                 (projected[4]!![2] + projected[5]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
         }
-        // Нижняя
         if (projected[0] != null && projected[1] != null && projected[2] != null && projected[3] != null) {
             faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[2]!!, projected[3]!!,
                 (projected[0]!![2] + projected[1]!![2] + projected[2]!![2] + projected[3]!![2]) / 4f))
@@ -289,9 +287,8 @@ class GameView @JvmOverloads constructor(
         invalidate()
     }
 
-    // Земля — вокруг игрока (по целым клеткам)
+    // Земля — маленькие блоки, как в Minecraft
     private fun drawGround(canvas: Canvas) {
-        val gridSize = 500f
         val range = 7
 
         val groundPaint = Paint().apply {
@@ -304,15 +301,15 @@ class GameView @JvmOverloads constructor(
             strokeWidth = 2f
         }
 
-        // Центр сетки — всегда "под игроком" (но в целых клетках)
-        val centerX = (playerX / gridSize).toInt() * gridSize
-        val centerZ = (playerZ / gridSize).toInt() * gridSize
+        // Центр сетки — под игроком
+        val centerX = (playerX / groundBlockSize).toInt() * groundBlockSize
+        val centerZ = (playerZ / groundBlockSize).toInt() * groundBlockSize
 
         for (ix in -range..range) {
             for (iz in -range..range) {
-                val x = centerX + ix * gridSize
-                val z = centerZ + iz * gridSize
-                val half = gridSize / 2f
+                val x = centerX + ix * groundBlockSize
+                val z = centerZ + iz * groundBlockSize
+                val half = groundBlockSize / 2f
 
                 val p1 = project(x - half, 0f, z - half) ?: continue
                 val p2 = project(x + half, 0f, z - half) ?: continue
@@ -359,7 +356,7 @@ class GameView @JvmOverloads constructor(
             val moveX = joyDeltaX
             val moveZ = -joyDeltaY
 
-            // Преобразуем локальные координаты в мировые (относительно камеры)
+            // Локальные координаты → мировые (относительно камеры)
             val worldX = moveX * cosYaw + moveZ * sinYaw
             val worldZ = -moveX * sinYaw + moveZ * cosYaw
 
