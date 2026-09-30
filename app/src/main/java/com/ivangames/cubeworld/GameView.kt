@@ -45,7 +45,7 @@ class GameView @JvmOverloads constructor(
     // Размеры
     private val groundBlockSize = 100f
     private val cubeSize = 100f
-    private val playerRadius = 30f   // радиус игрока для столкновений
+    private val playerRadius = 30f
 
     // Джойстик
     private var joyCenterX = 0f
@@ -58,14 +58,14 @@ class GameView @JvmOverloads constructor(
     private var joyDeltaX = 0f
     private var joyDeltaY = 0f
 
-    // Кнопка прыжка
+    // Прыжок
     private var jumpBtnX = 0f
     private var jumpBtnY = 0f
     private var jumpBtnRadius = 100f
     private var jumpBtnPressed = false
     private var jumpTouchId = -1
 
-    // Кнопка атаки
+    // Атака
     private var attackBtnX = 0f
     private var attackBtnY = 0f
     private var attackBtnRadius = 100f
@@ -81,8 +81,8 @@ class GameView @JvmOverloads constructor(
     // Анимация удара
     private var attackAnimTimer = 0
 
-    // ===== МИР =====
-    private val walls = mutableListOf<Wall>()   // стены (дома)
+    // Мир
+    private val walls = mutableListOf<Wall>()
     private val enemies = mutableListOf<Enemy>()
 
     class Wall(val x: Float, val z: Float, val size: Float, val height: Float, val color: Int)
@@ -224,18 +224,14 @@ class GameView @JvmOverloads constructor(
         walls.clear()
         enemies.clear()
 
-        // ===== ДОМ 1 — слева =====
-        // Стены дома (квадрат 400x400, стены по краям)
         val house1X = -600f
         val house1Z = -400f
         buildHouse(house1X, house1Z, Color.parseColor("#8B4513"))
 
-        // ===== ДОМ 2 — справа =====
         val house2X = 600f
         val house2Z = -400f
         buildHouse(house2X, house2Z, Color.parseColor("#A0522D"))
 
-        // ===== ВРАГИ =====
         for (i in 0 until 5) {
             val angle = i * (360f / 5f) * Math.PI.toFloat() / 180f
             val dist = 500f + i * 100f
@@ -255,20 +251,15 @@ class GameView @JvmOverloads constructor(
         }
     }
 
-    // Строим дом (стены по периметру)
     private fun buildHouse(centerX: Float, centerZ: Float, color: Int) {
-        val halfSize = 250f       // размер дома от центра
-        val wallThickness = 80f   // толщина стен
-        val wallHeight = 200f     // высота стен
+        val halfSize = 250f
+        val wallThickness = 80f
+        val wallHeight = 200f
 
-        // Верхняя стена
         walls.add(Wall(centerX, centerZ - halfSize, halfSize * 2 + wallThickness, wallHeight, color))
-        // Нижняя стена (с проёмом в центре — вход)
         walls.add(Wall(centerX - halfSize / 2 - 30f, centerZ + halfSize, halfSize, wallHeight, color))
         walls.add(Wall(centerX + halfSize / 2 + 30f, centerZ + halfSize, halfSize, wallHeight, color))
-        // Левая стена
         walls.add(Wall(centerX - halfSize, centerZ, halfSize * 2 + wallThickness, wallHeight, color))
-        // Правая стена
         walls.add(Wall(centerX + halfSize, centerZ, halfSize * 2 + wallThickness, wallHeight, color))
     }
 
@@ -398,19 +389,16 @@ private fun updateCamera() {
 override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
 
-    // Небо
     canvas.drawColor(Color.parseColor("#87CEEB"))
 
     updateCamera()
 
-    // Земля
     drawGround(canvas)
 
-    // Стены домов + враги — все в общий список, сортируем по глубине
+    // Стены + враги
     data class DrawItem(val depth: Float, val draw: () -> Unit)
     val items = mutableListOf<DrawItem>()
 
-    // Стены
     for (wall in walls) {
         val dx = wall.x - camX
         val dz = wall.z - camZ
@@ -421,7 +409,6 @@ override fun onDraw(canvas: Canvas) {
         })
     }
 
-    // Враги (живые)
     for (e in enemies) {
         if (e.hp <= 0) continue
         val dx = e.x - camX
@@ -429,30 +416,19 @@ override fun onDraw(canvas: Canvas) {
         val depth = dx * dx + dz * dz
         items.add(DrawItem(depth) {
             drawBox(canvas, e.x, e.y, e.z, e.size, e.size, e.size, Color.parseColor("#E94560"))
+            drawEnemyHpBar(canvas, e)
         })
     }
 
-    // Сортируем — дальние раньше
     for (item in items.sortedByDescending { it.depth }) {
         item.draw()
     }
 
-    // Джойстик
     drawJoystick(canvas)
-
-    // Кнопка прыжка
     drawJumpButton(canvas)
-
-    // Кнопка атаки
     drawAttackButton(canvas)
-
-    // Прицел
     drawCrosshair(canvas)
-
-    // Меч
     drawSword(canvas)
-
-    // HP
     drawHpBars(canvas)
 
     update()
@@ -483,9 +459,7 @@ private fun drawGround(canvas: Canvas) {
         }
     }
 
-    val sorted = blocks.sortedByDescending { it.depth }
-
-    for (block in sorted) {
+    for (block in blocks.sortedByDescending { it.depth }) {
         val half = groundBlockSize / 2f
         val p1 = project(block.x - half, 0f, block.z - half) ?: continue
         val p2 = project(block.x + half, 0f, block.z - half) ?: continue
@@ -586,10 +560,53 @@ private fun drawHpBars(canvas: Canvas) {
 
     canvas.drawText("HP: $playerHp / $playerMaxHp", heroBarX + 10f, heroBarY + barHeight - 8f, hpTextPaint)
 }
+
+// ===== HP-ПОЛОСКА НАД ВРАГОМ =====
+private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
+    // Точка над головой врага
+    val headY = enemy.y + enemy.size / 2f + 30f
+    val pos = project(enemy.x, headY, enemy.z) ?: return
+
+    val screenX = pos[0]
+    val screenY = pos[1]
+
+    // Размер зависит от расстояния
+    val depth = pos[2]
+    val scale = (400f / depth).coerceIn(0.4f, 1.2f)
+
+    val barWidth = 80f * scale
+    val barHeight = 10f * scale
+
+    val left = screenX - barWidth / 2f
+    val top = screenY - barHeight / 2f
+
+    // Фон — красный
+    val bgPaint = Paint().apply {
+        color = Color.parseColor("#CC550000")
+        style = Paint.Style.FILL
+    }
+    canvas.drawRect(left, top, left + barWidth, top + barHeight, bgPaint)
+
+    // Заполнение — зелёное
+    val hpPercent = enemy.hp.toFloat() / enemy.maxHp
+    val fillPaint = Paint().apply {
+        color = Color.parseColor("#FF4CAF50")
+        style = Paint.Style.FILL
+    }
+    canvas.drawRect(left, top, left + barWidth * hpPercent, top + barHeight, fillPaint)
+
+    // Обводка — белая
+    val borderPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * scale
+    }
+    canvas.drawRect(left, top, left + barWidth, top + barHeight, borderPaint)
+}
     // ============ ФИЗИКА ============
 
     private fun update() {
-        // ===== Горизонтальное движение игрока =====
+        // Горизонтальное движение игрока
         if (joyActive) {
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
@@ -603,20 +620,18 @@ private fun drawHpBars(canvas: Canvas) {
 
             val speed = 12f
 
-            // Пытаемся сдвинуться по X
             val newX = playerX + worldX * speed
             if (!collidesWithWall(newX, playerZ)) {
                 playerX = newX
             }
 
-            // Пытаемся сдвинуться по Z
             val newZ = playerZ + worldZ * speed
             if (!collidesWithWall(playerX, newZ)) {
                 playerZ = newZ
             }
         }
 
-        // ===== Гравитация =====
+        // Гравитация
         velocityY -= gravity
         playerY += velocityY
 
@@ -628,7 +643,7 @@ private fun drawHpBars(canvas: Canvas) {
             onGround = false
         }
 
-        // ===== ВРАГИ ХОДЯТ ЗА ИГРОКОМ =====
+        // Враги ходят за игроком
         for (enemy in enemies) {
             if (enemy.hp <= 0) continue
 
@@ -641,7 +656,6 @@ private fun drawHpBars(canvas: Canvas) {
                 val nx = dx / dist
                 val nz = dz / dist
 
-                // Враг тоже упирается в стены
                 val newX = enemy.x + nx * speed
                 if (!collidesWithWall(newX, enemy.z)) {
                     enemy.x = newX
@@ -653,13 +667,13 @@ private fun drawHpBars(canvas: Canvas) {
             }
         }
 
-        // ===== Анимация удара =====
+        // Анимация удара
         if (attackAnimTimer > 0) {
             attackAnimTimer--
         }
     }
 
-    // ===== СТОЛКНОВЕНИЯ С ТВЁРДЫМИ ОБЪЕКТАМИ =====
+    // Столкновения
     private fun collidesWithWall(x: Float, z: Float): Boolean {
         for (wall in walls) {
             val halfSize = wall.size / 2f
