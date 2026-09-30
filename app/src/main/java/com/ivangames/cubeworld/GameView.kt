@@ -540,13 +540,14 @@ class GameView @JvmOverloads constructor(
         val dirX = -sin(yawRad).toFloat()
         val dirZ = cos(yawRad).toFloat()
 
-        val dist = 250f
+        val dist = 200f
 
         val blockX = playerX + dirX * dist
         val blockZ = playerZ + dirZ * dist
 
-        val gridX = floor((blockX / cubeSize).toDouble()).toFloat() * cubeSize + cubeSize / 2f
-        val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize + cubeSize / 2f
+// Выравниваем блок по той же сетке, что и земля
+val gridX = floor((blockX / cubeSize).toDouble()).toFloat() * cubeSize
+val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize
 
         val dx = gridX - playerX
         val dz = gridZ - playerZ
