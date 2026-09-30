@@ -19,40 +19,41 @@ class GameView @JvmOverloads constructor(
     private var screenW = 0f
     private var screenH = 0f
 
-    // ===== Камера (от первого лица) =====
+    // Камера
     private var camX = 0f
     private var camY = 60f
     private var camZ = 0f
     private var camYaw = 0f
     private var camPitch = 0f
 
-    // ===== Персонаж =====
+    // Персонаж
     private var playerX = 0f
     private var playerY = 0f
     private var playerZ = 0f
     private val eyeHeight = 60f
 
-    // ===== Джойстик =====
+    // Джойстик (левая половина)
     private var joyCenterX = 0f
     private var joyCenterY = 0f
     private var joyRadius = 200f
     private var joyKnobX = 0f
     private var joyKnobY = 0f
     private var joyActive = false
+    private var joyTouchId = -1
     private var joyDeltaX = 0f
     private var joyDeltaY = 0f
 
-    // ===== Свайп камеры =====
-    private var lastTouchX = 0f
-    private var lastTouchY = 0f
-    private var isRotating = false
+    // Поворот (правая половина)
+    private var rotateActive = false
+    private var rotateTouchId = -1
+    private var lastRotateX = 0f
+    private var lastRotateY = 0f
 
-    // ===== Мир =====
+    // Мир
     private val cubes = mutableListOf<Cube>()
-
     class Cube(val x: Float, val y: Float, val z: Float, val size: Float, val color: Int)
 
-    // ===== Краски =====
+    // Краски
     private val joyBasePaint = Paint().apply {
         color = Color.parseColor("#66FFFFFF")
         style = Paint.Style.FILL
@@ -69,6 +70,17 @@ class GameView @JvmOverloads constructor(
         strokeWidth = 6f
         isAntiAlias = true
     }
+    private val crosshairPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 4f
+        isAntiAlias = true
+    }
+    private val crosshairDotPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
 
     init {
         setupWorld()
@@ -79,7 +91,8 @@ class GameView @JvmOverloads constructor(
         screenW = w.toFloat()
         screenH = h.toFloat()
 
-        joyRadius = minOf(screenW, screenH) * 0.16f
+        // Джойстик — левая половина
+        joyRadius = minOf(screenW, screenH) * 0.14f
         joyCenterX = joyRadius + 80f
         joyCenterY = screenH - joyRadius - 80f
         joyKnobX = joyCenterX
@@ -100,14 +113,14 @@ class GameView @JvmOverloads constructor(
             Color.parseColor("#2ECC71")
         )
 
-        // Кубы вокруг игрока
-        for (i in 0 until 30) {
-            val angle = i * (360f / 30f) * Math.PI.toFloat() / 180f
-            val dist = 300f + (i % 5) * 180f
+        // Кубы подальше от игрока
+        for (i in 0 until 25) {
+            val angle = i * (360f / 25f) * Math.PI.toFloat() / 180f
+            val dist = 600f + (i % 5) * 250f   // минимум 600 единиц от центра
             val x = cos(angle) * dist
             val z = sin(angle) * dist
-            val y = 40f + (i % 3) * 30f
-            val size = 80f + (i % 3) * 40f
+            val y = 50f + (i % 3) * 40f
+            val size = 100f + (i % 3) * 50f
             val color = colors[i % colors.size]
             cubes.add(Cube(x, y, z, size, color))
         }
@@ -169,18 +182,16 @@ private fun drawCube(canvas: Canvas, cube: Cube) {
         isAntiAlias = true
     }
 
-    // Верхняя грань
-    drawFace(canvas, projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!, paint)
     // Передняя
     drawFace(canvas, projected[0]!!, projected[1]!!, projected[5]!!, projected[4]!!, paint)
+    // Правая
+    drawFace(canvas, projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!, paint)
     // Задняя
     drawFace(canvas, projected[3]!!, projected[2]!!, projected[6]!!, projected[7]!!, paint)
     // Левая
     drawFace(canvas, projected[0]!!, projected[3]!!, projected[7]!!, projected[4]!!, paint)
-    // Правая
-    drawFace(canvas, projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!, paint)
-    // Нижняя
-    drawFace(canvas, projected[0]!!, projected[1]!!, projected[2]!!, projected[3]!!, paint)
+    // Верхняя
+    drawFace(canvas, projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!, paint)
 }
 
 private fun drawFace(canvas: Canvas, p1: FloatArray, p2: FloatArray, p3: FloatArray, p4: FloatArray, paint: Paint) {
@@ -206,32 +217,41 @@ private fun updateCamera() {
 override fun onDraw(canvas: Canvas) {
     super.onDraw(canvas)
 
+    // Небо
     canvas.drawColor(Color.parseColor("#87CEEB"))
 
     updateCamera()
 
-    // Сортируем кубы — дальние раньше
-    val sortedCubes = cubes.sortedByDescending { cube ->
-        val dx = cube.x - camX
-        val dz = cube.z - camZ
-        dx * dx + dz * dz
-    }
-
+    // Земля (рисуем первой, потом кубы)
     drawGround(canvas)
+
+    // Сортируем кубы — дальние раньше
+    val sortedCubes = cubes
+        .map { cube ->
+            val dx = cube.x - camX
+            val dz = cube.z - camZ
+            cube to (dx * dx + dz * dz)
+        }
+        .sortedByDescending { it.second }
+        .map { it.first }
 
     for (cube in sortedCubes) {
         drawCube(canvas, cube)
     }
 
+    // Джойстик
     drawJoystick(canvas)
+
+    // Точка прицела в центре
+    drawCrosshair(canvas)
 
     update()
     invalidate()
 }
 
 private fun drawGround(canvas: Canvas) {
-    val gridSize = 400f
-    val range = 3
+    val gridSize = 500f
+    val range = 4
 
     val groundPaint = Paint().apply {
         style = Paint.Style.FILL
@@ -274,76 +294,127 @@ private fun drawJoystick(canvas: Canvas) {
     canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBorderPaint)
     canvas.drawCircle(joyKnobX, joyKnobY, joyRadius * 0.4f, joyKnobPaint)
 }
+
+private fun drawCrosshair(canvas: Canvas) {
+    val cx = screenW / 2f
+    val cy = screenH / 2f
+    // Кружок
+    canvas.drawCircle(cx, cy, 20f, crosshairPaint)
+    // Точка в центре
+    canvas.drawCircle(cx, cy, 4f, crosshairDotPaint)
+}
     // ============ ФИЗИКА ============
 
     private fun update() {
         if (joyActive) {
+            // Движение относительно направления камеры (yaw)
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
             val sinYaw = sin(yawRad).toFloat()
 
-            // ВАЖНО: инвертируем Y (вверх = вперёд)
+            // Вверх джойстика = вперёд
             val moveX = joyDeltaX
             val moveZ = -joyDeltaY
 
-            val worldX = moveX * cosYaw - moveZ * sinYaw
-            val worldZ = moveX * sinYaw + moveZ * cosYaw
+            // Преобразуем локальные координаты в мировые
+            val worldX = moveX * cosYaw + moveZ * sinYaw
+            val worldZ = -moveX * sinYaw + moveZ * cosYaw
 
-            val speed = 8f
+            val speed = 10f
             playerX += worldX * speed
             playerZ += worldZ * speed
         }
     }
 
-    // ============ ТАП И ЖЕСТЫ ============
+    // ============ МУЛЬТИТАЧ ============
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val x = event.x
-        val y = event.y
-
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val dx = x - joyCenterX
-                val dy = y - joyCenterY
-                val dist = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+                val x = event.x
+                val y = event.y
 
-                if (dist <= joyRadius * 1.5f) {
+                // Проверяем левую половину экрана — джойстик
+                if (x < screenW / 2f) {
                     joyActive = true
+                    joyTouchId = event.getPointerId(0)
                     updateJoystick(x, y)
                 } else {
-                    isRotating = true
-                    lastTouchX = x
-                    lastTouchY = y
+                    // Правая половина — поворот камеры
+                    rotateActive = true
+                    rotateTouchId = event.getPointerId(0)
+                    lastRotateX = x
+                    lastRotateY = y
+                }
+            }
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                // Второй палец
+                val index = event.actionIndex
+                val x = event.getX(index)
+                val y = event.getY(index)
+                val id = event.getPointerId(index)
+
+                if (x < screenW / 2f && !joyActive) {
+                    joyActive = true
+                    joyTouchId = id
+                    updateJoystick(x, y)
+                } else if (x >= screenW / 2f && !rotateActive) {
+                    rotateActive = true
+                    rotateTouchId = id
+                    lastRotateX = x
+                    lastRotateY = y
                 }
             }
 
             MotionEvent.ACTION_MOVE -> {
-                if (joyActive) {
-                    updateJoystick(x, y)
-                } else if (isRotating) {
-                    val dx = x - lastTouchX
-                    val dy = y - lastTouchY
+                // Обходим все активные пальцы
+                for (i in 0 until event.pointerCount) {
+                    val id = event.getPointerId(i)
+                    val x = event.getX(i)
+                    val y = event.getY(i)
 
-                    camYaw += dx * 0.3f
-                    camPitch -= dy * 0.3f
-                    camPitch = camPitch.coerceIn(-60f, 60f)
-
-                    lastTouchX = x
-                    lastTouchY = y
+                    if (id == joyTouchId && joyActive) {
+                        updateJoystick(x, y)
+                    } else if (id == rotateTouchId && rotateActive) {
+                        val dx = x - lastRotateX
+                        val dy = y - lastRotateY
+                        camYaw += dx * 0.3f
+                        camPitch -= dy * 0.3f
+                        camPitch = camPitch.coerceIn(-60f, 60f)
+                        lastRotateX = x
+                        lastRotateY = y
+                    }
                 }
             }
 
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (joyActive) {
+            MotionEvent.ACTION_POINTER_UP -> {
+                val id = event.getPointerId(event.actionIndex)
+
+                if (id == joyTouchId) {
                     joyActive = false
+                    joyTouchId = -1
                     joyDeltaX = 0f
                     joyDeltaY = 0f
                     joyKnobX = joyCenterX
                     joyKnobY = joyCenterY
                 }
-                if (isRotating) {
-                    isRotating = false
+                if (id == rotateTouchId) {
+                    rotateActive = false
+                    rotateTouchId = -1
                 }
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                // Все пальцы подняты — сбрасываем
+                joyActive = false
+                rotateActive = false
+                joyTouchId = -1
+                rotateTouchId = -1
+                joyDeltaX = 0f
+                joyDeltaY = 0f
+                joyKnobX = joyCenterX
+                joyKnobY = joyCenterY
             }
         }
         return true
