@@ -19,7 +19,7 @@ class GameView @JvmOverloads constructor(
     private var screenW = 0f
     private var screenH = 0f
 
-    // Камера (от первого лица)
+    // Камера
     private var camX = 0f
     private var camY = 150f
     private var camZ = 0f
@@ -30,13 +30,19 @@ class GameView @JvmOverloads constructor(
     private var playerX = 0f
     private var playerY = 0f
     private var playerZ = 0f
+    private var velocityY = 0f
+    private var onGround = true
     private val eyeHeight = 150f
 
-    // Размер блока земли и кубов (Minecraft-стиль)
+    // Физика
+    private val gravity = 1.5f
+    private val jumpPower = -18f
+
+    // Размеры блоков
     private val groundBlockSize = 100f
     private val cubeSize = 100f
 
-    // Джойстик
+    // Джойстик (слева)
     private var joyCenterX = 0f
     private var joyCenterY = 0f
     private var joyRadius = 200f
@@ -47,7 +53,14 @@ class GameView @JvmOverloads constructor(
     private var joyDeltaX = 0f
     private var joyDeltaY = 0f
 
-    // Поворот
+    // Кнопка прыжка (справа снизу)
+    private var jumpBtnX = 0f
+    private var jumpBtnY = 0f
+    private var jumpBtnRadius = 100f
+    private var jumpBtnPressed = false
+    private var jumpTouchId = -1
+
+    // Поворот (правая половина)
     private var rotateActive = false
     private var rotateTouchId = -1
     private var lastRotateX = 0f
@@ -74,6 +87,24 @@ class GameView @JvmOverloads constructor(
         strokeWidth = 6f
         isAntiAlias = true
     }
+    private val jumpBtnPaint = Paint().apply {
+        color = Color.parseColor("#66FFC107")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val jumpBtnBorderPaint = Paint().apply {
+        color = Color.parseColor("#AAFFFFFF")
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        isAntiAlias = true
+    }
+    private val jumpBtnTextPaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 60f
+        textAlign = Paint.Align.CENTER
+        isAntiAlias = true
+        isFakeBoldText = true
+    }
     private val crosshairPaint = Paint().apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
@@ -95,11 +126,17 @@ class GameView @JvmOverloads constructor(
         screenW = w.toFloat()
         screenH = h.toFloat()
 
+        // Джойстик — слева снизу
         joyRadius = minOf(screenW, screenH) * 0.14f
         joyCenterX = joyRadius + 80f
         joyCenterY = screenH - joyRadius - 80f
         joyKnobX = joyCenterX
         joyKnobY = joyCenterY
+
+        // Кнопка прыжка — справа снизу
+        jumpBtnRadius = minOf(screenW, screenH) * 0.09f
+        jumpBtnX = screenW - jumpBtnRadius - 100f
+        jumpBtnY = screenH - jumpBtnRadius - 100f
     }
 
     private fun setupWorld() {
@@ -116,16 +153,14 @@ class GameView @JvmOverloads constructor(
             Color.parseColor("#2ECC71")
         )
 
-        // Кубы — вокруг игрока, по одному блоку
         for (i in 0 until 40) {
             val angle = i * (360f / 40f) * Math.PI.toFloat() / 180f
             val dist = 300f + (i % 6) * 200f
             val x = cos(angle) * dist
             val z = sin(angle) * dist
-            val size = cubeSize
-            val y = size / 2f
+            val y = cubeSize / 2f
             val color = colors[i % colors.size]
-            cubes.add(Cube(x, y, z, size, color))
+            cubes.add(Cube(x, y, z, cubeSize, color))
         }
     }
 
@@ -242,7 +277,7 @@ class GameView @JvmOverloads constructor(
         path.close()
         canvas.drawPath(path, paint)
     }
-    // ============ КАМЕРА (от первого лица) ============
+    // ============ КАМЕРА ============
 
     private fun updateCamera() {
         camX = playerX
@@ -280,6 +315,9 @@ class GameView @JvmOverloads constructor(
         // Джойстик
         drawJoystick(canvas)
 
+        // Кнопка прыжка
+        drawJumpButton(canvas)
+
         // Прицел
         drawCrosshair(canvas)
 
@@ -287,7 +325,7 @@ class GameView @JvmOverloads constructor(
         invalidate()
     }
 
-    // Земля — маленькие блоки 100x100 (Minecraft-стиль)
+    // Земля — маленькие блоки 100x100, отсортированные
     private fun drawGround(canvas: Canvas) {
         val range = 12
 
@@ -304,30 +342,45 @@ class GameView @JvmOverloads constructor(
         val centerX = (playerX / groundBlockSize).toInt() * groundBlockSize
         val centerZ = (playerZ / groundBlockSize).toInt() * groundBlockSize
 
+        // Список блоков с глубиной
+        data class GBlock(val x: Float, val z: Float, val isDark: Boolean, val depth: Float)
+        val blocks = mutableListOf<GBlock>()
+
         for (ix in -range..range) {
             for (iz in -range..range) {
                 val x = centerX + ix * groundBlockSize
                 val z = centerZ + iz * groundBlockSize
-                val half = groundBlockSize / 2f
-
-                val p1 = project(x - half, 0f, z - half) ?: continue
-                val p2 = project(x + half, 0f, z - half) ?: continue
-                val p3 = project(x + half, 0f, z + half) ?: continue
-                val p4 = project(x - half, 0f, z + half) ?: continue
-
-                // Шахматный порядок — более контрастный
+                val dx = x - camX
+                val dz = z - camZ
+                val depth = dx * dx + dz * dz
                 val isDark = (ix + iz) % 2 == 0
-                groundPaint.color = if (isDark) Color.parseColor("#4CAF50") else Color.parseColor("#66BB6A")
-
-                val path = Path()
-                path.moveTo(p1[0], p1[1])
-                path.lineTo(p2[0], p2[1])
-                path.lineTo(p3[0], p3[1])
-                path.lineTo(p4[0], p4[1])
-                path.close()
-                canvas.drawPath(path, groundPaint)
-                canvas.drawPath(path, borderPaint)
+                blocks.add(GBlock(x, z, isDark, depth))
             }
+        }
+
+        // Сортируем — дальние раньше
+        val sorted = blocks.sortedByDescending { it.depth }
+
+        for (block in sorted) {
+            val x = block.x
+            val z = block.z
+            val half = groundBlockSize / 2f
+
+            val p1 = project(x - half, 0f, z - half) ?: continue
+            val p2 = project(x + half, 0f, z - half) ?: continue
+            val p3 = project(x + half, 0f, z + half) ?: continue
+            val p4 = project(x - half, 0f, z + half) ?: continue
+
+            groundPaint.color = if (block.isDark) Color.parseColor("#4CAF50") else Color.parseColor("#66BB6A")
+
+            val path = Path()
+            path.moveTo(p1[0], p1[1])
+            path.lineTo(p2[0], p2[1])
+            path.lineTo(p3[0], p3[1])
+            path.lineTo(p4[0], p4[1])
+            path.close()
+            canvas.drawPath(path, groundPaint)
+            canvas.drawPath(path, borderPaint)
         }
     }
 
@@ -335,6 +388,24 @@ class GameView @JvmOverloads constructor(
         canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBasePaint)
         canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBorderPaint)
         canvas.drawCircle(joyKnobX, joyKnobY, joyRadius * 0.4f, joyKnobPaint)
+    }
+
+    private fun drawJumpButton(canvas: Canvas) {
+        // Кнопка прыжка
+        val paint = if (jumpBtnPressed) {
+            Paint().apply {
+                color = Color.parseColor("#AAFFC107")
+                style = Paint.Style.FILL
+                isAntiAlias = true
+            }
+        } else jumpBtnPaint
+
+        canvas.drawCircle(jumpBtnX, jumpBtnY, jumpBtnRadius, paint)
+        canvas.drawCircle(jumpBtnX, jumpBtnY, jumpBtnRadius, jumpBtnBorderPaint)
+
+        // Текст "↑"
+        val textY = jumpBtnY - (jumpBtnTextPaint.descent() + jumpBtnTextPaint.ascent()) / 2f
+        canvas.drawText("↑", jumpBtnX, textY, jumpBtnTextPaint)
     }
 
     private fun drawCrosshair(canvas: Canvas) {
@@ -347,22 +418,35 @@ class GameView @JvmOverloads constructor(
     // ============ ФИЗИКА ============
 
     private fun update() {
+        // Горизонтальное движение
         if (joyActive) {
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
             val sinYaw = sin(yawRad).toFloat()
 
-            // Вверх джойстика = вперёд
             val moveX = joyDeltaX
             val moveZ = -joyDeltaY
 
-            // Локальные координаты → мировые (относительно камеры)
             val worldX = moveX * cosYaw + moveZ * sinYaw
             val worldZ = -moveX * sinYaw + moveZ * cosYaw
 
             val speed = 12f
             playerX += worldX * speed
             playerZ += worldZ * speed
+        }
+
+        // Гравитация (вертикаль)
+        velocityY += gravity
+        playerY += velocityY
+
+        // Пол
+        val groundLevel = 0f
+        if (playerY >= groundLevel) {
+            playerY = groundLevel
+            velocityY = 0f
+            onGround = true
+        } else {
+            onGround = false
         }
     }
 
@@ -374,16 +458,35 @@ class GameView @JvmOverloads constructor(
                 val x = event.x
                 val y = event.y
 
-                if (x < screenW / 2f) {
+                // Проверяем: попали ли в кнопку прыжка?
+                val jumpDx = x - jumpBtnX
+                val jumpDy = y - jumpBtnY
+                val jumpDist = Math.sqrt((jumpDx * jumpDx + jumpDy * jumpDy).toDouble()).toFloat()
+
+                if (jumpDist <= jumpBtnRadius * 1.3f) {
+                    jumpBtnPressed = true
+                    jumpTouchId = event.getPointerId(0)
+                    doJump()
+                    return true
+                }
+
+                // Проверяем: попали ли в джойстик?
+                val joyDx = x - joyCenterX
+                val joyDy = y - joyCenterY
+                val joyDist = Math.sqrt((joyDx * joyDx + joyDy * joyDy).toDouble()).toFloat()
+
+                if (joyDist <= joyRadius * 1.5f) {
                     joyActive = true
                     joyTouchId = event.getPointerId(0)
                     updateJoystick(x, y)
-                } else {
-                    rotateActive = true
-                    rotateTouchId = event.getPointerId(0)
-                    lastRotateX = x
-                    lastRotateY = y
+                    return true
                 }
+
+                // Иначе — поворот
+                rotateActive = true
+                rotateTouchId = event.getPointerId(0)
+                lastRotateX = x
+                lastRotateY = y
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -392,11 +495,29 @@ class GameView @JvmOverloads constructor(
                 val y = event.getY(index)
                 val id = event.getPointerId(index)
 
-                if (x < screenW / 2f && !joyActive) {
+                val jumpDx = x - jumpBtnX
+                val jumpDy = y - jumpBtnY
+                val jumpDist = Math.sqrt((jumpDx * jumpDx + jumpDy * jumpDy).toDouble()).toFloat()
+
+                if (jumpDist <= jumpBtnRadius * 1.3f && !jumpBtnPressed) {
+                    jumpBtnPressed = true
+                    jumpTouchId = id
+                    doJump()
+                    return true
+                }
+
+                val joyDx = x - joyCenterX
+                val joyDy = y - joyCenterY
+                val joyDist = Math.sqrt((joyDx * joyDx + joyDy * joyDy).toDouble()).toFloat()
+
+                if (joyDist <= joyRadius * 1.5f && !joyActive) {
                     joyActive = true
                     joyTouchId = id
                     updateJoystick(x, y)
-                } else if (x >= screenW / 2f && !rotateActive) {
+                    return true
+                }
+
+                if (!rotateActive) {
                     rotateActive = true
                     rotateTouchId = id
                     lastRotateX = x
@@ -426,6 +547,7 @@ class GameView @JvmOverloads constructor(
 
             MotionEvent.ACTION_POINTER_UP -> {
                 val id = event.getPointerId(event.actionIndex)
+
                 if (id == joyTouchId) {
                     joyActive = false
                     joyTouchId = -1
@@ -438,13 +560,19 @@ class GameView @JvmOverloads constructor(
                     rotateActive = false
                     rotateTouchId = -1
                 }
+                if (id == jumpTouchId) {
+                    jumpBtnPressed = false
+                    jumpTouchId = -1
+                }
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 joyActive = false
                 rotateActive = false
+                jumpBtnPressed = false
                 joyTouchId = -1
                 rotateTouchId = -1
+                jumpTouchId = -1
                 joyDeltaX = 0f
                 joyDeltaY = 0f
                 joyKnobX = joyCenterX
@@ -452,6 +580,13 @@ class GameView @JvmOverloads constructor(
             }
         }
         return true
+    }
+
+    private fun doJump() {
+        if (onGround) {
+            velocityY = jumpPower
+            onGround = false
+        }
     }
 
     private fun updateJoystick(touchX: Float, touchY: Float) {
