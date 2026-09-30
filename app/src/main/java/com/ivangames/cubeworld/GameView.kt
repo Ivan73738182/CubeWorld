@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.View
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.random.Random
 
 class GameView @JvmOverloads constructor(
     context: Context,
@@ -37,6 +38,7 @@ class GameView @JvmOverloads constructor(
     // HP героя
     private var playerHp = 100
     private val playerMaxHp = 100
+    private var enemyAttackCooldown = 0
 
     // Физика
     private val gravity = 1.5f
@@ -81,6 +83,10 @@ class GameView @JvmOverloads constructor(
     // Анимация удара
     private var attackAnimTimer = 0
 
+    // Частицы
+    private val particles = mutableListOf<Particle>()
+    class Particle(var x: Float, var y: Float, var z: Float, var vx: Float, var vy: Float, var vz: Float, var life: Int)
+
     // Мир
     private val walls = mutableListOf<Wall>()
     private val enemies = mutableListOf<Enemy>()
@@ -92,7 +98,8 @@ class GameView @JvmOverloads constructor(
         var z: Float,
         var size: Float,
         var hp: Int,
-        val maxHp: Int
+        val maxHp: Int,
+        var attackCooldown: Int = 0
     )
 
     // Краски
@@ -195,6 +202,11 @@ class GameView @JvmOverloads constructor(
         strokeCap = Paint.Cap.ROUND
         isAntiAlias = true
     }
+    private val particlePaint = Paint().apply {
+        color = Color.parseColor("#E94560")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
 
     init {
         setupWorld()
@@ -223,6 +235,7 @@ class GameView @JvmOverloads constructor(
     private fun setupWorld() {
         walls.clear()
         enemies.clear()
+        particles.clear()
 
         val house1X = -600f
         val house1Z = -400f
@@ -395,7 +408,6 @@ override fun onDraw(canvas: Canvas) {
 
     drawGround(canvas)
 
-    // Стены + враги
     data class DrawItem(val depth: Float, val draw: () -> Unit)
     val items = mutableListOf<DrawItem>()
 
@@ -423,6 +435,9 @@ override fun onDraw(canvas: Canvas) {
     for (item in items.sortedByDescending { it.depth }) {
         item.draw()
     }
+
+    // Частицы
+    drawParticles(canvas)
 
     drawJoystick(canvas)
     drawJumpButton(canvas)
@@ -563,14 +578,12 @@ private fun drawHpBars(canvas: Canvas) {
 
 // ===== HP-ПОЛОСКА НАД ВРАГОМ =====
 private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
-    // Точка над головой врага
     val headY = enemy.y + enemy.size / 2f + 30f
     val pos = project(enemy.x, headY, enemy.z) ?: return
 
     val screenX = pos[0]
     val screenY = pos[1]
 
-    // Размер зависит от расстояния
     val depth = pos[2]
     val scale = (400f / depth).coerceIn(0.4f, 1.2f)
 
@@ -580,14 +593,12 @@ private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
     val left = screenX - barWidth / 2f
     val top = screenY - barHeight / 2f
 
-    // Фон — красный
     val bgPaint = Paint().apply {
         color = Color.parseColor("#CC550000")
         style = Paint.Style.FILL
     }
     canvas.drawRect(left, top, left + barWidth, top + barHeight, bgPaint)
 
-    // Заполнение — зелёное
     val hpPercent = enemy.hp.toFloat() / enemy.maxHp
     val fillPaint = Paint().apply {
         color = Color.parseColor("#FF4CAF50")
@@ -595,13 +606,39 @@ private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
     }
     canvas.drawRect(left, top, left + barWidth * hpPercent, top + barHeight, fillPaint)
 
-    // Обводка — белая
     val borderPaint = Paint().apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
         strokeWidth = 2f * scale
     }
     canvas.drawRect(left, top, left + barWidth, top + barHeight, borderPaint)
+}
+
+// ===== ЧАСТИЦЫ =====
+private fun spawnParticles(x: Float, y: Float, z: Float) {
+    for (i in 0 until 10) {
+        val angle = Random.nextFloat() * 2f * Math.PI.toFloat()
+        val speed = Random.nextFloat() * 4f + 2f
+        particles.add(
+            Particle(
+                x = x,
+                y = y,
+                z = z,
+                vx = cos(angle) * speed,
+                vy = Random.nextFloat() * 4f + 2f,
+                vz = sin(angle) * speed,
+                life = 30
+            )
+        )
+    }
+}
+
+private fun drawParticles(canvas: Canvas) {
+    for (p in particles) {
+        val pos = project(p.x, p.y, p.z) ?: continue
+        val size = (200f / pos[2]).coerceIn(1f, 8f)
+        canvas.drawCircle(pos[0], pos[1], size, particlePaint)
+    }
 }
     // ============ ФИЗИКА ============
 
@@ -643,7 +680,7 @@ private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
             onGround = false
         }
 
-        // Враги ходят за игроком
+        // ===== ВРАГИ =====
         for (enemy in enemies) {
             if (enemy.hp <= 0) continue
 
@@ -651,6 +688,7 @@ private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
             val dz = playerZ - enemy.z
             val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
 
+            // Враг идёт за игроком
             if (dist > 150f) {
                 val speed = 3f
                 val nx = dx / dist
@@ -665,9 +703,32 @@ private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
                     enemy.z = newZ
                 }
             }
+            // Враг бьёт игрока (когда рядом)
+            else {
+                if (enemy.attackCooldown <= 0) {
+                    // Игрок получает урон
+                    playerHp -= 10
+                    if (playerHp < 0) playerHp = 0
+                    enemy.attackCooldown = 60  // 1 сек (60 кадров)
+                }
+            }
+
+            if (enemy.attackCooldown > 0) enemy.attackCooldown--
         }
 
-        // Анимация удара
+        // ===== ЧАСТИЦЫ =====
+        val iter = particles.iterator()
+        while (iter.hasNext()) {
+            val p = iter.next()
+            p.x += p.vx
+            p.y += p.vy
+            p.z += p.vz
+            p.vy -= 0.3f  // гравитация частиц
+            p.life--
+            if (p.life <= 0) iter.remove()
+        }
+
+        // ===== Анимация удара =====
         if (attackAnimTimer > 0) {
             attackAnimTimer--
         }
@@ -721,9 +782,24 @@ private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
             }
         }
 
-        bestEnemy?.let {
-            it.hp -= 25
-            if (it.hp < 0) it.hp = 0
+        bestEnemy?.let { enemy ->
+            // Урон
+            enemy.hp -= 25
+            if (enemy.hp < 0) enemy.hp = 0
+
+            // Частицы (кровь)
+            spawnParticles(enemy.x, enemy.y + enemy.size / 4, enemy.z)
+
+            // Отброс (враг отлетает от игрока)
+            val dx = enemy.x - playerX
+            val dz = enemy.z - playerZ
+            val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
+            if (dist > 0.01f) {
+                val nx = dx / dist
+                val nz = dz / dist
+                enemy.x += nx * 50f
+                enemy.z += nz * 50f
+            }
         }
     }
 
