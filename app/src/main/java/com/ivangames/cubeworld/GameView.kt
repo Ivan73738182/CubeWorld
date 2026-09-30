@@ -1,4 +1,4 @@
-kpackage com.ivangames.cubeworld
+package com.ivangames.cubeworld
 
 import android.content.Context
 import android.graphics.Canvas
