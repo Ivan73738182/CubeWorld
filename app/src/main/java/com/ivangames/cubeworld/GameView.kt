@@ -1,4 +1,4 @@
-package com.ivangames.cubeworld
+kpackage com.ivangames.cubeworld
 
 import android.content.Context
 import android.graphics.Canvas
@@ -38,7 +38,13 @@ class GameView @JvmOverloads constructor(
     // HP героя
     private var playerHp = 100
     private val playerMaxHp = 100
-    private var enemyAttackCooldown = 0
+
+    // Прогресс
+    private var playerXp = 0
+    private var playerLevel = 1
+    private var playerCoins = 0
+    private var playerKills = 0
+    private val xpPerLevel = 100
 
     // Физика
     private val gravity = 1.5f
@@ -85,7 +91,11 @@ class GameView @JvmOverloads constructor(
 
     // Частицы
     private val particles = mutableListOf<Particle>()
-    class Particle(var x: Float, var y: Float, var z: Float, var vx: Float, var vy: Float, var vz: Float, var life: Int)
+    class Particle(
+        var x: Float, var y: Float, var z: Float,
+        var vx: Float, var vy: Float, var vz: Float,
+        var life: Int
+    )
 
     // Мир
     private val walls = mutableListOf<Wall>()
@@ -188,6 +198,29 @@ class GameView @JvmOverloads constructor(
         isAntiAlias = true
         isFakeBoldText = true
     }
+    private val statsTextPaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 28f
+        isAntiAlias = true
+        isFakeBoldText = true
+        textAlign = Paint.Align.RIGHT
+    }
+    private val xpBarBgPaint = Paint().apply {
+        color = Color.parseColor("#55000000")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val xpBarFillPaint = Paint().apply {
+        color = Color.parseColor("#FF2196F3")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val xpBarBorderPaint = Paint().apply {
+        color = Color.WHITE
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        isAntiAlias = true
+    }
     private val swordPaint = Paint().apply {
         color = Color.parseColor("#CCCCCC")
         style = Paint.Style.STROKE
@@ -236,6 +269,12 @@ class GameView @JvmOverloads constructor(
         walls.clear()
         enemies.clear()
         particles.clear()
+
+        playerXp = 0
+        playerLevel = 1
+        playerCoins = 0
+        playerKills = 0
+        playerHp = playerMaxHp
 
         val house1X = -600f
         val house1Z = -400f
@@ -436,7 +475,6 @@ override fun onDraw(canvas: Canvas) {
         item.draw()
     }
 
-    // Частицы
     drawParticles(canvas)
 
     drawJoystick(canvas)
@@ -445,6 +483,7 @@ override fun onDraw(canvas: Canvas) {
     drawCrosshair(canvas)
     drawSword(canvas)
     drawHpBars(canvas)
+    drawStats(canvas)
 
     update()
     invalidate()
@@ -576,7 +615,6 @@ private fun drawHpBars(canvas: Canvas) {
     canvas.drawText("HP: $playerHp / $playerMaxHp", heroBarX + 10f, heroBarY + barHeight - 8f, hpTextPaint)
 }
 
-// ===== HP-ПОЛОСКА НАД ВРАГОМ =====
 private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
     val headY = enemy.y + enemy.size / 2f + 30f
     val pos = project(enemy.x, headY, enemy.z) ?: return
@@ -614,6 +652,27 @@ private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
     canvas.drawRect(left, top, left + barWidth, top + barHeight, borderPaint)
 }
 
+// ===== СТАТИСТИКА СВЕРХУ СПРАВА =====
+private fun drawStats(canvas: Canvas) {
+    val margin = 60f
+    val x = screenW - margin
+
+    canvas.drawText("Уровень: $playerLevel", x, margin + 40f, statsTextPaint)
+    canvas.drawText("XP: $playerXp / $xpPerLevel", x, margin + 80f, statsTextPaint)
+    canvas.drawText("💰 $playerCoins", x, margin + 120f, statsTextPaint)
+    canvas.drawText("⚔ $playerKills", x, margin + 160f, statsTextPaint)
+
+    val xpBarWidth = 300f
+    val xpBarHeight = 12f
+    val xpBarX = screenW - margin - xpBarWidth
+    val xpBarY = margin + 95f
+
+    canvas.drawRect(xpBarX, xpBarY, xpBarX + xpBarWidth, xpBarY + xpBarHeight, xpBarBgPaint)
+    val fill = playerXp.toFloat() / xpPerLevel * xpBarWidth
+    canvas.drawRect(xpBarX, xpBarY, xpBarX + fill, xpBarY + xpBarHeight, xpBarFillPaint)
+    canvas.drawRect(xpBarX, xpBarY, xpBarX + xpBarWidth, xpBarY + xpBarHeight, xpBarBorderPaint)
+}
+
 // ===== ЧАСТИЦЫ =====
 private fun spawnParticles(x: Float, y: Float, z: Float) {
     for (i in 0 until 10) {
@@ -640,10 +699,27 @@ private fun drawParticles(canvas: Canvas) {
         canvas.drawCircle(pos[0], pos[1], size, particlePaint)
     }
 }
+
+// ===== ПРОГРЕСС =====
+private fun gainXp(amount: Int) {
+    playerXp += amount
+    while (playerXp >= xpPerLevel) {
+        playerXp -= xpPerLevel
+        playerLevel++
+        playerHp = playerMaxHp
+    }
+}
+
+private fun onEnemyKilled(enemy: Enemy) {
+    playerKills++
+    gainXp(20)
+    playerCoins += 5
+    spawnParticles(enemy.x, enemy.y, enemy.z)
+}
     // ============ ФИЗИКА ============
 
     private fun update() {
-        // Горизонтальное движение игрока
+        // Движение игрока
         if (joyActive) {
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
@@ -688,7 +764,6 @@ private fun drawParticles(canvas: Canvas) {
             val dz = playerZ - enemy.z
             val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
 
-            // Враг идёт за игроком
             if (dist > 150f) {
                 val speed = 3f
                 val nx = dx / dist
@@ -702,14 +777,12 @@ private fun drawParticles(canvas: Canvas) {
                 if (!collidesWithWall(enemy.x, newZ)) {
                     enemy.z = newZ
                 }
-            }
-            // Враг бьёт игрока (когда рядом)
-            else {
+            } else {
+                // Враг бьёт игрока
                 if (enemy.attackCooldown <= 0) {
-                    // Игрок получает урон
                     playerHp -= 10
                     if (playerHp < 0) playerHp = 0
-                    enemy.attackCooldown = 60  // 1 сек (60 кадров)
+                    enemy.attackCooldown = 60
                 }
             }
 
@@ -723,18 +796,16 @@ private fun drawParticles(canvas: Canvas) {
             p.x += p.vx
             p.y += p.vy
             p.z += p.vz
-            p.vy -= 0.3f  // гравитация частиц
+            p.vy -= 0.3f
             p.life--
             if (p.life <= 0) iter.remove()
         }
 
-        // ===== Анимация удара =====
         if (attackAnimTimer > 0) {
             attackAnimTimer--
         }
     }
 
-    // Столкновения
     private fun collidesWithWall(x: Float, z: Float): Boolean {
         for (wall in walls) {
             val halfSize = wall.size / 2f
@@ -748,57 +819,63 @@ private fun drawParticles(canvas: Canvas) {
         return false
     }
 
-    // ============ АТАКА ============
+    // ============ АТАКА (СТРОГО ПО ПРИЦЕЛУ) ============
 
     private fun doAttack() {
         attackAnimTimer = 15
 
         val yawRad = Math.toRadians(camYaw.toDouble())
-        val dirX = -sin(yawRad).toFloat()
-        val dirZ = cos(yawRad).toFloat()
+        val pitchRad = Math.toRadians(camPitch.toDouble())
 
-        var bestEnemy: Enemy? = null
-        var bestDist = Float.MAX_VALUE
+        val cosYaw = cos(yawRad).toFloat()
+        val sinYaw = sin(yawRad).toFloat()
+        val cosPitch = cos(pitchRad).toFloat()
+        val sinPitch = sin(pitchRad).toFloat()
+
+        // Направление луча взгляда в 3D
+        val dirX = -sinYaw * cosPitch
+        val dirY = sinPitch
+        val dirZ = cosYaw * cosPitch
 
         for (enemy in enemies) {
             if (enemy.hp <= 0) continue
 
-            val dx = enemy.x - playerX
-            val dz = enemy.z - playerZ
-            val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
+            val toX = enemy.x - playerX
+            val toY = enemy.y - camY
+            val toZ = enemy.z - playerZ
 
+            val dist = Math.sqrt((toX * toX + toY * toY + toZ * toZ).toDouble()).toFloat()
             if (dist > 250f) continue
 
-            val enemyDirX = dx / dist
-            val enemyDirZ = dz / dist
+            val nx = toX / dist
+            val ny = toY / dist
+            val nz = toZ / dist
 
-            val dot = enemyDirX * dirX + enemyDirZ * dirZ
+            // Скалярное произведение — точность попадания
+            val dot = nx * dirX + ny * dirY + nz * dirZ
 
-            if (dot > 0.7f) {
-                if (dist < bestDist) {
-                    bestDist = dist
-                    bestEnemy = enemy
+            // cos(20°) ≈ 0.94 — узкий конус
+            if (dot > 0.94f) {
+                enemy.hp -= 25
+                if (enemy.hp < 0) enemy.hp = 0
+
+                spawnParticles(enemy.x, enemy.y + enemy.size / 4, enemy.z)
+
+                // Отброс
+                val dx = enemy.x - playerX
+                val dz = enemy.z - playerZ
+                val d = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
+                if (d > 0.01f) {
+                    enemy.x += dx / d * 50f
+                    enemy.z += dz / d * 50f
                 }
-            }
-        }
 
-        bestEnemy?.let { enemy ->
-            // Урон
-            enemy.hp -= 25
-            if (enemy.hp < 0) enemy.hp = 0
+                // Если убит — прогресс
+                if (enemy.hp <= 0) {
+                    onEnemyKilled(enemy)
+                }
 
-            // Частицы (кровь)
-            spawnParticles(enemy.x, enemy.y + enemy.size / 4, enemy.z)
-
-            // Отброс (враг отлетает от игрока)
-            val dx = enemy.x - playerX
-            val dz = enemy.z - playerZ
-            val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
-            if (dist > 0.01f) {
-                val nx = dx / dist
-                val nz = dz / dist
-                enemy.x += nx * 50f
-                enemy.z += nz * 50f
+                break
             }
         }
     }
@@ -811,7 +888,6 @@ private fun drawParticles(canvas: Canvas) {
                 val x = event.x
                 val y = event.y
 
-                // Прыжок
                 val jumpDx = x - jumpBtnX
                 val jumpDy = y - jumpBtnY
                 val jumpDist = Math.sqrt((jumpDx * jumpDx + jumpDy * jumpDy).toDouble()).toFloat()
@@ -823,7 +899,6 @@ private fun drawParticles(canvas: Canvas) {
                     return true
                 }
 
-                // Атака
                 val attackDx = x - attackBtnX
                 val attackDy = y - attackBtnY
                 val attackDist = Math.sqrt((attackDx * attackDx + attackDy * attackDy).toDouble()).toFloat()
@@ -835,7 +910,6 @@ private fun drawParticles(canvas: Canvas) {
                     return true
                 }
 
-                // Джойстик
                 val joyDx = x - joyCenterX
                 val joyDy = y - joyCenterY
                 val joyDist = Math.sqrt((joyDx * joyDx + joyDy * joyDy).toDouble()).toFloat()
@@ -847,7 +921,6 @@ private fun drawParticles(canvas: Canvas) {
                     return true
                 }
 
-                // Поворот
                 rotateActive = true
                 rotateTouchId = event.getPointerId(0)
                 lastRotateX = x
