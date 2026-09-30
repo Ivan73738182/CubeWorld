@@ -9,6 +9,7 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.cos
+import kotlin.math.floor
 import kotlin.math.sin
 
 class GameView @JvmOverloads constructor(
@@ -60,35 +61,35 @@ class GameView @JvmOverloads constructor(
     private var jumpBtnPressed = false
     private var jumpTouchId = -1
 
+    // Кнопка "Поставить блок"
+    private var placeBtnX = 0f
+    private var placeBtnY = 0f
+    private var placeBtnRadius = 100f
+    private var placeBtnPressed = false
+    private var placeTouchId = -1
+
     // Поворот
     private var rotateActive = false
     private var rotateTouchId = -1
     private var lastRotateX = 0f
     private var lastRotateY = 0f
 
-    // ===== ИНВЕНТАРЬ =====
-    // 5 слотов с блоками
+    // Инвентарь
     private val slotColors = intArrayOf(
-        Color.parseColor("#E94560"), // красный
-        Color.parseColor("#F39C12"), // оранжевый
-        Color.parseColor("#F1C40F"), // жёлтый
-        Color.parseColor("#2ECC71"), // зелёный
-        Color.parseColor("#3498DB")  // синий
+        Color.parseColor("#E94560"),
+        Color.parseColor("#F39C12"),
+        Color.parseColor("#F1C40F"),
+        Color.parseColor("#2ECC71"),
+        Color.parseColor("#3498DB")
     )
-    private var selectedSlot = 0   // индекс выбранного слота
-
-    // Прямоугольники слотов
+    private var selectedSlot = 0
     private val slotRects = mutableListOf<android.graphics.RectF>()
 
-    // ===== МИР =====
-    // Статичные кубы (нельзя убрать)
-    private val worldCubes = mutableListOf<Cube>()
-    // Поставленные игроком кубы
+    // Мир (только поставленные игроком блоки)
     private val placedCubes = mutableListOf<Cube>()
-
     class Cube(val x: Float, val y: Float, val z: Float, val size: Float, val color: Int)
 
-    // ===== Краски =====
+    // Краски
     private val joyBasePaint = Paint().apply {
         color = Color.parseColor("#66FFFFFF")
         style = Paint.Style.FILL
@@ -119,6 +120,24 @@ class GameView @JvmOverloads constructor(
     private val jumpBtnTextPaint = Paint().apply {
         color = Color.WHITE
         textSize = 60f
+        textAlign = Paint.Align.CENTER
+        isAntiAlias = true
+        isFakeBoldText = true
+    }
+    private val placeBtnPaint = Paint().apply {
+        color = Color.parseColor("#664CAF50")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val placeBtnBorderPaint = Paint().apply {
+        color = Color.parseColor("#AAFFFFFF")
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        isAntiAlias = true
+    }
+    private val placeBtnTextPaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 70f
         textAlign = Paint.Align.CENTER
         isAntiAlias = true
         isFakeBoldText = true
@@ -161,19 +180,24 @@ class GameView @JvmOverloads constructor(
         screenW = w.toFloat()
         screenH = h.toFloat()
 
-        // Джойстик
+        // Джойстик — слева снизу
         joyRadius = minOf(screenW, screenH) * 0.14f
         joyCenterX = joyRadius + 80f
         joyCenterY = screenH - joyRadius - 80f
         joyKnobX = joyCenterX
         joyKnobY = joyCenterY
 
-        // Кнопка прыжка
+        // Кнопка прыжка — справа снизу
         jumpBtnRadius = minOf(screenW, screenH) * 0.09f
         jumpBtnX = screenW - jumpBtnRadius - 100f
         jumpBtnY = screenH - jumpBtnRadius - 100f
 
-        // Инвентарь — 5 слотов внизу по центру
+        // Кнопка "Поставить" — НАД кнопкой прыжка
+        placeBtnRadius = minOf(screenW, screenH) * 0.09f
+        placeBtnX = screenW - placeBtnRadius - 100f
+        placeBtnY = jumpBtnY - jumpBtnRadius - placeBtnRadius - 30f
+
+        // Инвентарь
         updateSlotRects()
     }
 
@@ -193,29 +217,8 @@ class GameView @JvmOverloads constructor(
     }
 
     private fun setupWorld() {
-        worldCubes.clear()
         placedCubes.clear()
-
-        val colors = intArrayOf(
-            Color.parseColor("#E94560"),
-            Color.parseColor("#F39C12"),
-            Color.parseColor("#9B59B6"),
-            Color.parseColor("#3498DB"),
-            Color.parseColor("#1ABC9C"),
-            Color.parseColor("#E74C3C"),
-            Color.parseColor("#F1C40F"),
-            Color.parseColor("#2ECC71")
-        )
-
-        for (i in 0 until 40) {
-            val angle = i * (360f / 40f) * Math.PI.toFloat() / 180f
-            val dist = 300f + (i % 6) * 200f
-            val x = cos(angle) * dist
-            val z = sin(angle) * dist
-            val y = cubeSize / 2f
-            val color = colors[i % colors.size]
-            worldCubes.add(Cube(x, y, z, cubeSize, color))
-        }
+        // Пустой мир
     }
 
     // ============ 3D-ПРОЕКЦИЯ ============
@@ -352,13 +355,8 @@ class GameView @JvmOverloads constructor(
         // Земля
         drawGround(canvas)
 
-        // Собираем все кубы для сортировки (мир + поставленные)
-        val allCubes = mutableListOf<Cube>()
-        allCubes.addAll(worldCubes)
-        allCubes.addAll(placedCubes)
-
-        // Сортируем по глубине
-        val sorted = allCubes
+        // Сортируем блоки по глубине
+        val sorted = placedCubes
             .map { cube ->
                 val dx = cube.x - camX
                 val dz = cube.z - camZ
@@ -376,6 +374,9 @@ class GameView @JvmOverloads constructor(
 
         // Кнопка прыжка
         drawJumpButton(canvas)
+
+        // Кнопка "Поставить"
+        drawPlaceButton(canvas)
 
         // Прицел
         drawCrosshair(canvas)
@@ -452,6 +453,22 @@ class GameView @JvmOverloads constructor(
         canvas.drawText("↑", jumpBtnX, textY, jumpBtnTextPaint)
     }
 
+    private fun drawPlaceButton(canvas: Canvas) {
+        val paint = if (placeBtnPressed) {
+            Paint().apply {
+                color = Color.parseColor("#AA4CAF50")
+                style = Paint.Style.FILL
+                isAntiAlias = true
+            }
+        } else placeBtnPaint
+
+        canvas.drawCircle(placeBtnX, placeBtnY, placeBtnRadius, paint)
+        canvas.drawCircle(placeBtnX, placeBtnY, placeBtnRadius, placeBtnBorderPaint)
+
+        val textY = placeBtnY - (placeBtnTextPaint.descent() + placeBtnTextPaint.ascent()) / 2f
+        canvas.drawText("+", placeBtnX, textY, placeBtnTextPaint)
+    }
+
     private fun drawCrosshair(canvas: Canvas) {
         val cx = screenW / 2f
         val cy = screenH / 2f
@@ -459,18 +476,14 @@ class GameView @JvmOverloads constructor(
         canvas.drawCircle(cx, cy, 4f, crosshairDotPaint)
     }
 
-    // ============ ИНВЕНТАРЬ ============
-
     private fun drawInventory(canvas: Canvas) {
         for (i in 0 until slotRects.size) {
             val rect = slotRects[i]
             val cx = rect.centerX()
             val cy = rect.centerY()
 
-            // Фон слота
             canvas.drawRect(rect, slotBgPaint)
 
-            // Блок цвета в слоте
             val colorPaint = Paint().apply {
                 color = slotColors[i]
                 style = Paint.Style.FILL
@@ -481,7 +494,6 @@ class GameView @JvmOverloads constructor(
             val by = cy - blockSize / 2f
             canvas.drawRect(bx, by, bx + blockSize, by + blockSize, colorPaint)
 
-            // Обводка слота
             if (i == selectedSlot) {
                 canvas.drawRect(rect, slotSelectedPaint)
             } else {
@@ -493,7 +505,6 @@ class GameView @JvmOverloads constructor(
     // ============ ФИЗИКА ============
 
     private fun update() {
-        // Горизонтальное движение
         if (joyActive) {
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
@@ -510,11 +521,9 @@ class GameView @JvmOverloads constructor(
             playerZ += worldZ * speed
         }
 
-        // Гравитация
         velocityY -= gravity
         playerY += velocityY
 
-        // Пол
         if (playerY <= 0f) {
             playerY = 0f
             velocityY = 0f
@@ -524,54 +533,29 @@ class GameView @JvmOverloads constructor(
         }
     }
 
-    // ============ УСТАНОВКА БЛОКА ============
-
-    private fun tryPlaceBlock(tapX: Float, tapY: Float) {
-        // Проверяем: тап по инвентарю?
-        for (i in 0 until slotRects.size) {
-            if (slotRects[i].contains(tapX, tapY)) {
-                // Выбираем слот
-                selectedSlot = i
-                return
-            }
-        }
-
-        // Иначе — ставим блок там, куда смотрим
-        placeBlockInFront()
-    }
+    // ============ ПОСТАНОВКА БЛОКА ============
 
     private fun placeBlockInFront() {
-        // Луч из прицела: определяем точку на земле впереди игрока
         val yawRad = Math.toRadians(camYaw.toDouble())
-        val pitchRad = Math.toRadians(camPitch.toDouble())
-
-        // Направление взгляда
         val dirX = -sin(yawRad).toFloat()
         val dirZ = -cos(yawRad).toFloat()
 
-        // Высота камеры
-        val camHeight = camY
+        val dist = 250f
 
-        // Длина луча до земли: camHeight / |tan(pitch)|
-        // Но так как pitch = 0 (смотрим прямо), используем фикс. длину
-        val dist = 400f
-
-        // Точка на земле
         val blockX = playerX + dirX * dist
         val blockZ = playerZ + dirZ * dist
 
-        // Выравниваем по сетке блоков
-        val gridX = (blockX / cubeSize).toInt() * cubeSize + cubeSize / 2f
-        val gridZ = (blockZ / cubeSize).toInt() * cubeSize + cubeSize / 2f
+        val gridX = floor((blockX / cubeSize).toDouble()).toFloat() * cubeSize + cubeSize / 2f
+        val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize + cubeSize / 2f
 
-        // Проверяем: не слишком ли близко к игроку?
         val dx = gridX - playerX
         val dz = gridZ - playerZ
         val distToPlayer = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
 
-        if (distToPlayer < cubeSize * 1.5f) return
+        if (distToPlayer < cubeSize * 1.2f) return
 
-        // Добавляем блок
+        if (placedCubes.any { Math.abs(it.x - gridX) < 1f && Math.abs(it.z - gridZ) < 1f }) return
+
         placedCubes.add(
             Cube(
                 gridX,
@@ -603,6 +587,26 @@ class GameView @JvmOverloads constructor(
                     return true
                 }
 
+                // Кнопка "Поставить"
+                val placeDx = x - placeBtnX
+                val placeDy = y - placeBtnY
+                val placeDist = Math.sqrt((placeDx * placeDx + placeDy * placeDy).toDouble()).toFloat()
+
+                if (placeDist <= placeBtnRadius * 1.3f) {
+                    placeBtnPressed = true
+                    placeTouchId = event.getPointerId(0)
+                    placeBlockInFront()
+                    return true
+                }
+
+                // Инвентарь
+                for (i in 0 until slotRects.size) {
+                    if (slotRects[i].contains(x, y)) {
+                        selectedSlot = i
+                        return true
+                    }
+                }
+
                 // Джойстик
                 val joyDx = x - joyCenterX
                 val joyDy = y - joyCenterY
@@ -615,16 +619,11 @@ class GameView @JvmOverloads constructor(
                     return true
                 }
 
-                // Тап по инвентарю
-                for (i in 0 until slotRects.size) {
-                    if (slotRects[i].contains(x, y)) {
-                        selectedSlot = i
-                        return true
-                    }
-                }
-
-                // Иначе — попытка поставить блок в центр (по прицелу)
-                placeBlockInFront()
+                // Иначе — поворот (всегда работает)
+                rotateActive = true
+                rotateTouchId = event.getPointerId(0)
+                lastRotateX = x
+                lastRotateY = y
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -644,6 +643,17 @@ class GameView @JvmOverloads constructor(
                     return true
                 }
 
+                val placeDx = x - placeBtnX
+                val placeDy = y - placeBtnY
+                val placeDist = Math.sqrt((placeDx * placeDx + placeDy * placeDy).toDouble()).toFloat()
+
+                if (placeDist <= placeBtnRadius * 1.3f && !placeBtnPressed) {
+                    placeBtnPressed = true
+                    placeTouchId = id
+                    placeBlockInFront()
+                    return true
+                }
+
                 val joyDx = x - joyCenterX
                 val joyDy = y - joyCenterY
                 val joyDist = Math.sqrt((joyDx * joyDx + joyDy * joyDy).toDouble()).toFloat()
@@ -655,11 +665,12 @@ class GameView @JvmOverloads constructor(
                     return true
                 }
 
-                // Иначе — поворот
-                rotateActive = true
-                rotateTouchId = id
-                lastRotateX = x
-                lastRotateY = y
+                if (!rotateActive) {
+                    rotateActive = true
+                    rotateTouchId = id
+                    lastRotateX = x
+                    lastRotateY = y
+                }
             }
 
             MotionEvent.ACTION_MOVE -> {
@@ -701,15 +712,21 @@ class GameView @JvmOverloads constructor(
                     jumpBtnPressed = false
                     jumpTouchId = -1
                 }
+                if (id == placeTouchId) {
+                    placeBtnPressed = false
+                    placeTouchId = -1
+                }
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 joyActive = false
                 rotateActive = false
                 jumpBtnPressed = false
+                placeBtnPressed = false
                 joyTouchId = -1
                 rotateTouchId = -1
                 jumpTouchId = -1
+                placeTouchId = -1
                 joyDeltaX = 0f
                 joyDeltaY = 0f
                 joyKnobX = joyCenterX
