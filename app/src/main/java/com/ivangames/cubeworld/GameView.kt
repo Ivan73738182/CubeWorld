@@ -21,7 +21,7 @@ class GameView @JvmOverloads constructor(
 
     // Камера (от первого лица)
     private var camX = 0f
-    private var camY = 120f
+    private var camY = 150f
     private var camZ = 0f
     private var camYaw = 0f
     private var camPitch = 0f
@@ -30,11 +30,11 @@ class GameView @JvmOverloads constructor(
     private var playerX = 0f
     private var playerY = 0f
     private var playerZ = 0f
-    private val eyeHeight = 120f
+    private val eyeHeight = 150f
 
-    // Размер блока земли и кубов (как в Minecraft)
-    private val groundBlockSize = 200f
-    private val cubeSize = 120f
+    // Размер блока земли и кубов (Minecraft-стиль)
+    private val groundBlockSize = 100f
+    private val cubeSize = 100f
 
     // Джойстик
     private var joyCenterX = 0f
@@ -116,7 +116,7 @@ class GameView @JvmOverloads constructor(
             Color.parseColor("#2ECC71")
         )
 
-        // Кубы — вокруг игрока, маленькие, как блоки
+        // Кубы — вокруг игрока, по одному блоку
         for (i in 0 until 40) {
             val angle = i * (360f / 40f) * Math.PI.toFloat() / 180f
             val dist = 300f + (i % 6) * 200f
@@ -287,21 +287,20 @@ class GameView @JvmOverloads constructor(
         invalidate()
     }
 
-    // Земля — маленькие блоки, как в Minecraft
+    // Земля — маленькие блоки 100x100 (Minecraft-стиль)
     private fun drawGround(canvas: Canvas) {
-        val range = 7
+        val range = 12
 
         val groundPaint = Paint().apply {
             style = Paint.Style.FILL
             isAntiAlias = true
         }
         val borderPaint = Paint().apply {
-            color = Color.parseColor("#4A9E4A")
+            color = Color.parseColor("#3A8E3A")
             style = Paint.Style.STROKE
             strokeWidth = 2f
         }
 
-        // Центр сетки — под игроком
         val centerX = (playerX / groundBlockSize).toInt() * groundBlockSize
         val centerZ = (playerZ / groundBlockSize).toInt() * groundBlockSize
 
@@ -316,8 +315,9 @@ class GameView @JvmOverloads constructor(
                 val p3 = project(x + half, 0f, z + half) ?: continue
                 val p4 = project(x - half, 0f, z + half) ?: continue
 
+                // Шахматный порядок — более контрастный
                 val isDark = (ix + iz) % 2 == 0
-                groundPaint.color = if (isDark) Color.parseColor("#5DAE5D") else Color.parseColor("#6DBE6D")
+                groundPaint.color = if (isDark) Color.parseColor("#4CAF50") else Color.parseColor("#66BB6A")
 
                 val path = Path()
                 path.moveTo(p1[0], p1[1])
@@ -360,7 +360,7 @@ class GameView @JvmOverloads constructor(
             val worldX = moveX * cosYaw + moveZ * sinYaw
             val worldZ = -moveX * sinYaw + moveZ * cosYaw
 
-            val speed = 10f
+            val speed = 12f
             playerX += worldX * speed
             playerZ += worldZ * speed
         }
