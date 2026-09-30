@@ -36,7 +36,7 @@ class GameView @JvmOverloads constructor(
 
     // Физика
     private val gravity = 1.5f
-    private val jumpPower = -18f
+    private val jumpPower = 20f
 
     // Размеры блоков
     private val groundBlockSize = 100f
@@ -434,20 +434,18 @@ class GameView @JvmOverloads constructor(
             playerX += worldX * speed
             playerZ += worldZ * speed
         }
+// Гравитация (вертикаль) — тянет вниз
+velocityY -= gravity
+playerY += velocityY
 
-        // Гравитация (вертикаль)
-        velocityY += gravity
-        playerY += velocityY
-
-        // Пол
-        val groundLevel = 0f
-        if (playerY >= groundLevel) {
-            playerY = groundLevel
-            velocityY = 0f
-            onGround = true
-        } else {
-            onGround = false
-        }
+// Пол — не проваливаемся ниже 0
+if (playerY <= 0f) {
+    playerY = 0f
+    velocityY = 0f
+    onGround = true
+} else {
+    onGround = false
+}
     }
 
     // ============ МУЛЬТИТАЧ ============
