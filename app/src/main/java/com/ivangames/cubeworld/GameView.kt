@@ -333,12 +333,6 @@ class GameView @JvmOverloads constructor(
             style = Paint.Style.FILL
             isAntiAlias = true
         }
-        val borderPaint = Paint().apply {
-            color = Color.parseColor("#3A8E3A")
-            style = Paint.Style.STROKE
-            strokeWidth = 2f
-        }
-
         val centerX = (playerX / groundBlockSize).toInt() * groundBlockSize
         val centerZ = (playerZ / groundBlockSize).toInt() * groundBlockSize
 
@@ -371,7 +365,7 @@ class GameView @JvmOverloads constructor(
             val p3 = project(x + half, 0f, z + half) ?: continue
             val p4 = project(x - half, 0f, z + half) ?: continue
 
-            groundPaint.color = if (block.isDark) Color.parseColor("#4CAF50") else Color.parseColor("#66BB6A")
+            groundPaint.color = Color.parseColor("#4CAF50")
 
             val path = Path()
             path.moveTo(p1[0], p1[1])
@@ -380,7 +374,6 @@ class GameView @JvmOverloads constructor(
             path.lineTo(p4[0], p4[1])
             path.close()
             canvas.drawPath(path, groundPaint)
-            canvas.drawPath(path, borderPaint)
         }
     }
 
