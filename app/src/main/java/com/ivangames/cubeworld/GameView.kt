@@ -9,7 +9,6 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.sin
 
 class GameView @JvmOverloads constructor(
@@ -27,13 +26,17 @@ class GameView @JvmOverloads constructor(
     private var camYaw = 0f
     private var camPitch = 0f
 
-    // Персонаж
+    // Герой
     private var playerX = 0f
     private var playerY = 0f
     private var playerZ = 0f
     private var velocityY = 0f
     private var onGround = true
     private val eyeHeight = 150f
+
+    // HP героя
+    private var playerHp = 100
+    private val playerMaxHp = 100
 
     // Физика
     private val gravity = 1.5f
@@ -61,12 +64,12 @@ class GameView @JvmOverloads constructor(
     private var jumpBtnPressed = false
     private var jumpTouchId = -1
 
-    // Кнопка "Поставить блок"
-    private var placeBtnX = 0f
-    private var placeBtnY = 0f
-    private var placeBtnRadius = 100f
-    private var placeBtnPressed = false
-    private var placeTouchId = -1
+    // Кнопка атаки (удар)
+    private var attackBtnX = 0f
+    private var attackBtnY = 0f
+    private var attackBtnRadius = 100f
+    private var attackBtnPressed = false
+    private var attackTouchId = -1
 
     // Поворот
     private var rotateActive = false
@@ -74,20 +77,19 @@ class GameView @JvmOverloads constructor(
     private var lastRotateX = 0f
     private var lastRotateY = 0f
 
-    // Инвентарь
-    private val slotColors = intArrayOf(
-        Color.parseColor("#E94560"),
-        Color.parseColor("#F39C12"),
-        Color.parseColor("#F1C40F"),
-        Color.parseColor("#2ECC71"),
-        Color.parseColor("#3498DB")
-    )
-    private var selectedSlot = 0
-    private val slotRects = mutableListOf<android.graphics.RectF>()
+    // Анимация удара
+    private var attackAnimTimer = 0
 
-    // Мир (только поставленные игроком блоки)
-    private val placedCubes = mutableListOf<Cube>()
-    class Cube(val x: Float, val y: Float, val z: Float, val size: Float, val color: Int)
+    // Враги
+    private val enemies = mutableListOf<Enemy>()
+    class Enemy(
+        var x: Float,
+        var y: Float,
+        var z: Float,
+        var size: Float,
+        var hp: Int,
+        val maxHp: Int
+    )
 
     // Краски
     private val joyBasePaint = Paint().apply {
@@ -124,20 +126,20 @@ class GameView @JvmOverloads constructor(
         isAntiAlias = true
         isFakeBoldText = true
     }
-    private val placeBtnPaint = Paint().apply {
-        color = Color.parseColor("#664CAF50")
+    private val attackBtnPaint = Paint().apply {
+        color = Color.parseColor("#66E94560")
         style = Paint.Style.FILL
         isAntiAlias = true
     }
-    private val placeBtnBorderPaint = Paint().apply {
+    private val attackBtnBorderPaint = Paint().apply {
         color = Color.parseColor("#AAFFFFFF")
         style = Paint.Style.STROKE
         strokeWidth = 6f
         isAntiAlias = true
     }
-    private val placeBtnTextPaint = Paint().apply {
+    private val attackBtnTextPaint = Paint().apply {
         color = Color.WHITE
-        textSize = 70f
+        textSize = 50f
         textAlign = Paint.Align.CENTER
         isAntiAlias = true
         isFakeBoldText = true
@@ -153,21 +155,40 @@ class GameView @JvmOverloads constructor(
         style = Paint.Style.FILL
         isAntiAlias = true
     }
-    private val slotBorderPaint = Paint().apply {
-        color = Color.parseColor("#AAFFFFFF")
-        style = Paint.Style.STROKE
-        strokeWidth = 4f
-        isAntiAlias = true
-    }
-    private val slotSelectedPaint = Paint().apply {
-        color = Color.parseColor("#FFFFEB3B")
-        style = Paint.Style.STROKE
-        strokeWidth = 6f
-        isAntiAlias = true
-    }
-    private val slotBgPaint = Paint().apply {
+    private val hpBarBgPaint = Paint().apply {
         color = Color.parseColor("#55000000")
         style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val hpBarFillPaint = Paint().apply {
+        color = Color.parseColor("#4CAF50")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+    private val hpBarBorderPaint = Paint().apply {
+        color = Color.parseColor("#AAFFFFFF")
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+        isAntiAlias = true
+    }
+    private val hpTextPaint = Paint().apply {
+        color = Color.WHITE
+        textSize = 32f
+        isAntiAlias = true
+        isFakeBoldText = true
+    }
+    private val swordPaint = Paint().apply {
+        color = Color.parseColor("#CCCCCC")
+        style = Paint.Style.STROKE
+        strokeWidth = 8f
+        strokeCap = Paint.Cap.ROUND
+        isAntiAlias = true
+    }
+    private val swordHandlePaint = Paint().apply {
+        color = Color.parseColor("#8B4513")
+        style = Paint.Style.STROKE
+        strokeWidth = 10f
+        strokeCap = Paint.Style.STROKE.let { Paint.Cap.ROUND }
         isAntiAlias = true
     }
 
@@ -180,45 +201,44 @@ class GameView @JvmOverloads constructor(
         screenW = w.toFloat()
         screenH = h.toFloat()
 
-        // Джойстик — слева снизу
+        // Джойстик
         joyRadius = minOf(screenW, screenH) * 0.14f
         joyCenterX = joyRadius + 80f
         joyCenterY = screenH - joyRadius - 80f
         joyKnobX = joyCenterX
         joyKnobY = joyCenterY
 
-        // Кнопка прыжка — справа снизу
+        // Кнопка прыжка
         jumpBtnRadius = minOf(screenW, screenH) * 0.09f
         jumpBtnX = screenW - jumpBtnRadius - 100f
         jumpBtnY = screenH - jumpBtnRadius - 100f
 
-        // Кнопка "Поставить" — НАД кнопкой прыжка
-        placeBtnRadius = minOf(screenW, screenH) * 0.09f
-        placeBtnX = screenW - placeBtnRadius - 100f
-        placeBtnY = jumpBtnY - jumpBtnRadius - placeBtnRadius - 30f
-
-        // Инвентарь
-        updateSlotRects()
-    }
-
-    private fun updateSlotRects() {
-        slotRects.clear()
-
-        val slotSize = 110f
-        val gap = 12f
-        val totalWidth = slotSize * 5 + gap * 4
-        val startX = (screenW - totalWidth) / 2f
-        val slotY = screenH - slotSize - 30f
-
-        for (i in 0 until 5) {
-            val x = startX + i * (slotSize + gap)
-            slotRects.add(android.graphics.RectF(x, slotY, x + slotSize, slotY + slotSize))
-        }
+        // Кнопка атаки — над прыжком
+        attackBtnRadius = minOf(screenW, screenH) * 0.09f
+        attackBtnX = screenW - attackBtnRadius - 100f
+        attackBtnY = jumpBtnY - jumpBtnRadius - attackBtnRadius - 30f
     }
 
     private fun setupWorld() {
-        placedCubes.clear()
-        // Пустой мир
+        enemies.clear()
+
+        // Создаём 5 врагов вокруг игрока
+        for (i in 0 until 5) {
+            val angle = i * (360f / 5f) * Math.PI.toFloat() / 180f
+            val dist = 500f + i * 100f
+            val x = cos(angle) * dist
+            val z = sin(angle) * dist
+            enemies.add(
+                Enemy(
+                    x = x,
+                    y = cubeSize / 2f,
+                    z = z,
+                    size = cubeSize,
+                    hp = 50,
+                    maxHp = 50
+                )
+            )
+        }
     }
 
     // ============ 3D-ПРОЕКЦИЯ ============
@@ -334,177 +354,206 @@ class GameView @JvmOverloads constructor(
         path.close()
         canvas.drawPath(path, paint)
     }
-    // ============ КАМЕРА ============
+// ============ КАМЕРА ============
 
-    private fun updateCamera() {
-        camX = playerX
-        camY = playerY + eyeHeight
-        camZ = playerZ
-    }
+private fun updateCamera() {
+    camX = playerX
+    camY = playerY + eyeHeight
+    camZ = playerZ
+}
 
-    // ============ РИСОВАНИЕ СЦЕНЫ ============
+// ============ РИСОВАНИЕ СЦЕНЫ ============
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
+override fun onDraw(canvas: Canvas) {
+    super.onDraw(canvas)
 
-        // Небо
-        canvas.drawColor(Color.parseColor("#87CEEB"))
+    // Небо
+    canvas.drawColor(Color.parseColor("#87CEEB"))
 
-        updateCamera()
+    updateCamera()
 
-        // Земля
-        drawGround(canvas)
+    // Земля
+    drawGround(canvas)
 
-        // Сортируем блоки по глубине
-        val sorted = placedCubes
-            .map { cube ->
-                val dx = cube.x - camX
-                val dz = cube.z - camZ
-                cube to (dx * dx + dz * dz)
-            }
-            .sortedByDescending { it.second }
-            .map { it.first }
-
-        for (cube in sorted) {
-            drawBox(canvas, cube.x, cube.y, cube.z, cube.size, cube.size, cube.size, cube.color)
+    // Сортируем врагов по глубине
+    val sortedEnemies = enemies
+        .filter { it.hp > 0 }
+        .map { e ->
+            val dx = e.x - camX
+            val dz = e.z - camZ
+            e to (dx * dx + dz * dz)
         }
+        .sortedByDescending { it.second }
+        .map { it.first }
 
-        // Джойстик
-        drawJoystick(canvas)
-
-        // Кнопка прыжка
-        drawJumpButton(canvas)
-
-        // Кнопка "Поставить"
-        drawPlaceButton(canvas)
-
-        // Прицел
-        drawCrosshair(canvas)
-
-        // Инвентарь
-        drawInventory(canvas)
-
-        update()
-        invalidate()
+    for (e in sortedEnemies) {
+        drawBox(canvas, e.x, e.y, e.z, e.size, e.size, e.size, Color.parseColor("#E94560"))
     }
 
-    private fun drawGround(canvas: Canvas) {
-        val range = 12
-        val groundPaint = Paint().apply {
-            color = Color.parseColor("#4CAF50")
+    // Джойстик
+    drawJoystick(canvas)
+
+    // Кнопка прыжка
+    drawJumpButton(canvas)
+
+    // Кнопка атаки
+    drawAttackButton(canvas)
+
+    // Прицел
+    drawCrosshair(canvas)
+
+    // Меч (от первого лица — рисуем в правом нижнем углу)
+    drawSword(canvas)
+
+    // HP сверху
+    drawHpBars(canvas)
+
+    update()
+    invalidate()
+}
+
+private fun drawGround(canvas: Canvas) {
+    val range = 12
+    val groundPaint = Paint().apply {
+        color = Color.parseColor("#4CAF50")
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+
+    val centerX = (playerX / groundBlockSize).toInt() * groundBlockSize
+    val centerZ = (playerZ / groundBlockSize).toInt() * groundBlockSize
+
+    data class GBlock(val x: Float, val z: Float, val depth: Float)
+    val blocks = mutableListOf<GBlock>()
+
+    for (ix in -range..range) {
+        for (iz in -range..range) {
+            val x = centerX + ix * groundBlockSize
+            val z = centerZ + iz * groundBlockSize
+            val dx = x - camX
+            val dz = z - camZ
+            blocks.add(GBlock(x, z, dx * dx + dz * dz))
+        }
+    }
+
+    val sorted = blocks.sortedByDescending { it.depth }
+
+    for (block in sorted) {
+        val half = groundBlockSize / 2f
+        val p1 = project(block.x - half, 0f, block.z - half) ?: continue
+        val p2 = project(block.x + half, 0f, block.z - half) ?: continue
+        val p3 = project(block.x + half, 0f, block.z + half) ?: continue
+        val p4 = project(block.x - half, 0f, block.z + half) ?: continue
+
+        val path = Path()
+        path.moveTo(p1[0], p1[1])
+        path.lineTo(p2[0], p2[1])
+        path.lineTo(p3[0], p3[1])
+        path.lineTo(p4[0], p4[1])
+        path.close()
+        canvas.drawPath(path, groundPaint)
+    }
+}
+
+private fun drawJoystick(canvas: Canvas) {
+    canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBasePaint)
+    canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBorderPaint)
+    canvas.drawCircle(joyKnobX, joyKnobY, joyRadius * 0.4f, joyKnobPaint)
+}
+
+private fun drawJumpButton(canvas: Canvas) {
+    val paint = if (jumpBtnPressed) {
+        Paint().apply {
+            color = Color.parseColor("#AAFFC107")
             style = Paint.Style.FILL
             isAntiAlias = true
         }
+    } else jumpBtnPaint
 
-        val centerX = (playerX / groundBlockSize).toInt() * groundBlockSize
-        val centerZ = (playerZ / groundBlockSize).toInt() * groundBlockSize
+    canvas.drawCircle(jumpBtnX, jumpBtnY, jumpBtnRadius, paint)
+    canvas.drawCircle(jumpBtnX, jumpBtnY, jumpBtnRadius, jumpBtnBorderPaint)
 
-        data class GBlock(val x: Float, val z: Float, val depth: Float)
-        val blocks = mutableListOf<GBlock>()
+    val textY = jumpBtnY - (jumpBtnTextPaint.descent() + jumpBtnTextPaint.ascent()) / 2f
+    canvas.drawText("↑", jumpBtnX, textY, jumpBtnTextPaint)
+}
 
-        for (ix in -range..range) {
-            for (iz in -range..range) {
-                val x = centerX + ix * groundBlockSize
-                val z = centerZ + iz * groundBlockSize
-                val dx = x - camX
-                val dz = z - camZ
-                blocks.add(GBlock(x, z, dx * dx + dz * dz))
-            }
+private fun drawAttackButton(canvas: Canvas) {
+    val paint = if (attackBtnPressed) {
+        Paint().apply {
+            color = Color.parseColor("#AAE94560")
+            style = Paint.Style.FILL
+            isAntiAlias = true
         }
+    } else attackBtnPaint
 
-        val sorted = blocks.sortedByDescending { it.depth }
+    canvas.drawCircle(attackBtnX, attackBtnY, attackBtnRadius, paint)
+    canvas.drawCircle(attackBtnX, attackBtnY, attackBtnRadius, attackBtnBorderPaint)
 
-        for (block in sorted) {
-            val half = groundBlockSize / 2f
-            val p1 = project(block.x - half, 0f, block.z - half) ?: continue
-            val p2 = project(block.x + half, 0f, block.z - half) ?: continue
-            val p3 = project(block.x + half, 0f, block.z + half) ?: continue
-            val p4 = project(block.x - half, 0f, block.z + half) ?: continue
+    val textY = attackBtnY - (attackBtnTextPaint.descent() + attackBtnTextPaint.ascent()) / 2f
+    canvas.drawText("⚔", attackBtnX, textY, attackBtnTextPaint)
+}
 
-            val path = Path()
-            path.moveTo(p1[0], p1[1])
-            path.lineTo(p2[0], p2[1])
-            path.lineTo(p3[0], p3[1])
-            path.lineTo(p4[0], p4[1])
-            path.close()
-            canvas.drawPath(path, groundPaint)
-        }
+private fun drawCrosshair(canvas: Canvas) {
+    val cx = screenW / 2f
+    val cy = screenH / 2f
+    canvas.drawCircle(cx, cy, 20f, crosshairPaint)
+    canvas.drawCircle(cx, cy, 4f, crosshairDotPaint)
+}
+
+// Меч в правом нижнем углу (от первого лица)
+private fun drawSword(canvas: Canvas) {
+    // Отступ анимации при ударе
+    val swingOffset = if (attackAnimTimer > 0) {
+        val progress = (15 - attackAnimTimer) / 15f
+        (1f - Math.abs(progress - 0.5f) * 2f) * 80f
+    } else 0f
+
+    val baseX = screenW * 0.85f + swingOffset
+    val baseY = screenH * 0.95f - swingOffset
+
+    // Рукоятка (коричневая)
+    val handleEndX = baseX - 60f
+    val handleEndY = baseY - 60f
+    canvas.drawLine(baseX, baseY, handleEndX, handleEndY, swordHandlePaint)
+
+    // Лезвие (серая)
+    val bladeEndX = handleEndX - 180f
+    val bladeEndY = handleEndY - 180f
+    canvas.drawLine(handleEndX, handleEndY, bladeEndX, bladeEndY, swordPaint)
+
+    // Остриё
+    canvas.drawCircle(bladeEndX, bladeEndY, 6f, swordPaint)
+}
+
+// Полоски HP
+private fun drawHpBars(canvas: Canvas) {
+    val barWidth = 400f
+    val barHeight = 40f
+    val margin = 40f
+
+    // ===== HP героя =====
+    val heroBarX = margin
+    val heroBarY = margin
+
+    // Фон
+    canvas.drawRect(heroBarX, heroBarY, heroBarX + barWidth, heroBarY + barHeight, hpBarBgPaint)
+
+    // Заполнение (зелёное)
+    val heroFill = playerHp.toFloat() / playerMaxHp * barWidth
+    if (heroFill > 0) {
+        canvas.drawRect(heroBarX, heroBarY, heroBarX + heroFill, heroBarY + barHeight, hpBarFillPaint)
     }
 
-    private fun drawJoystick(canvas: Canvas) {
-        canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBasePaint)
-        canvas.drawCircle(joyCenterX, joyCenterY, joyRadius, joyBorderPaint)
-        canvas.drawCircle(joyKnobX, joyKnobY, joyRadius * 0.4f, joyKnobPaint)
-    }
+    // Обводка
+    canvas.drawRect(heroBarX, heroBarY, heroBarX + barWidth, heroBarY + barHeight, hpBarBorderPaint)
 
-    private fun drawJumpButton(canvas: Canvas) {
-        val paint = if (jumpBtnPressed) {
-            Paint().apply {
-                color = Color.parseColor("#AAFFC107")
-                style = Paint.Style.FILL
-                isAntiAlias = true
-            }
-        } else jumpBtnPaint
-
-        canvas.drawCircle(jumpBtnX, jumpBtnY, jumpBtnRadius, paint)
-        canvas.drawCircle(jumpBtnX, jumpBtnY, jumpBtnRadius, jumpBtnBorderPaint)
-
-        val textY = jumpBtnY - (jumpBtnTextPaint.descent() + jumpBtnTextPaint.ascent()) / 2f
-        canvas.drawText("↑", jumpBtnX, textY, jumpBtnTextPaint)
-    }
-
-    private fun drawPlaceButton(canvas: Canvas) {
-        val paint = if (placeBtnPressed) {
-            Paint().apply {
-                color = Color.parseColor("#AA4CAF50")
-                style = Paint.Style.FILL
-                isAntiAlias = true
-            }
-        } else placeBtnPaint
-
-        canvas.drawCircle(placeBtnX, placeBtnY, placeBtnRadius, paint)
-        canvas.drawCircle(placeBtnX, placeBtnY, placeBtnRadius, placeBtnBorderPaint)
-
-        val textY = placeBtnY - (placeBtnTextPaint.descent() + placeBtnTextPaint.ascent()) / 2f
-        canvas.drawText("+", placeBtnX, textY, placeBtnTextPaint)
-    }
-
-    private fun drawCrosshair(canvas: Canvas) {
-        val cx = screenW / 2f
-        val cy = screenH / 2f
-        canvas.drawCircle(cx, cy, 20f, crosshairPaint)
-        canvas.drawCircle(cx, cy, 4f, crosshairDotPaint)
-    }
-
-    private fun drawInventory(canvas: Canvas) {
-        for (i in 0 until slotRects.size) {
-            val rect = slotRects[i]
-            val cx = rect.centerX()
-            val cy = rect.centerY()
-
-            canvas.drawRect(rect, slotBgPaint)
-
-            val colorPaint = Paint().apply {
-                color = slotColors[i]
-                style = Paint.Style.FILL
-                isAntiAlias = true
-            }
-            val blockSize = rect.width() * 0.7f
-            val bx = cx - blockSize / 2f
-            val by = cy - blockSize / 2f
-            canvas.drawRect(bx, by, bx + blockSize, by + blockSize, colorPaint)
-
-            if (i == selectedSlot) {
-                canvas.drawRect(rect, slotSelectedPaint)
-            } else {
-                canvas.drawRect(rect, slotBorderPaint)
-            }
-        }
-    }
-
+    // Текст
+    canvas.drawText("HP: $playerHp / $playerMaxHp", heroBarX + 10f, heroBarY + barHeight - 8f, hpTextPaint)
+}
     // ============ ФИЗИКА ============
 
     private fun update() {
+        // Горизонтальное движение игрока
         if (joyActive) {
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
@@ -521,6 +570,7 @@ class GameView @JvmOverloads constructor(
             playerZ += worldZ * speed
         }
 
+        // Гравитация игрока
         velocityY -= gravity
         playerY += velocityY
 
@@ -531,41 +581,61 @@ class GameView @JvmOverloads constructor(
         } else {
             onGround = false
         }
+
+        // ===== ВРАГИ ХОДЯТ ЗА ИГРОКОМ =====
+        for (enemy in enemies) {
+            if (enemy.hp <= 0) continue
+
+            val dx = playerX - enemy.x
+            val dz = playerZ - enemy.z
+            val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
+
+            if (dist > 100f) {
+                // Идём к игроку
+                val speed = 3f
+                val nx = dx / dist
+                val nz = dz / dist
+                enemy.x += nx * speed
+                enemy.z += nz * speed
+            }
+            // Если близко — стоим (позже будет атака)
+        }
+
+        // Анимация удара
+        if (attackAnimTimer > 0) {
+            attackAnimTimer--
+        }
     }
 
-    // ============ ПОСТАНОВКА БЛОКА ============
+    // ============ АТАКА ============
 
-    private fun placeBlockInFront() {
+    private fun doAttack() {
+        // Запускаем анимацию
+        attackAnimTimer = 15
+
+        // Проверяем: есть ли враг перед игроком в радиусе 200
         val yawRad = Math.toRadians(camYaw.toDouble())
         val dirX = -sin(yawRad).toFloat()
         val dirZ = cos(yawRad).toFloat()
 
-        val dist = 200f
+        // Точка перед игроком
+        val hitX = playerX + dirX * 150f
+        val hitZ = playerZ + dirZ * 150f
 
-        val blockX = playerX + dirX * dist
-        val blockZ = playerZ + dirZ * dist
+        // Ищем врага рядом с этой точкой
+        for (enemy in enemies) {
+            if (enemy.hp <= 0) continue
 
-// Выравниваем блок по той же сетке, что и земля
-val gridX = floor((blockX / cubeSize).toDouble()).toFloat() * cubeSize
-val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize
+            val dx = enemy.x - hitX
+            val dz = enemy.z - hitZ
+            val dist = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
 
-        val dx = gridX - playerX
-        val dz = gridZ - playerZ
-        val distToPlayer = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
-
-        if (distToPlayer < cubeSize * 1.2f) return
-
-        if (placedCubes.any { Math.abs(it.x - gridX) < 1f && Math.abs(it.z - gridZ) < 1f }) return
-
-        placedCubes.add(
-            Cube(
-                gridX,
-                cubeSize / 2f,
-                gridZ,
-                cubeSize,
-                slotColors[selectedSlot]
-            )
-        )
+            if (dist < 150f) {
+                // Удар!
+                enemy.hp -= 25
+                if (enemy.hp < 0) enemy.hp = 0
+            }
+        }
     }
 
     // ============ ТАП ============
@@ -588,24 +658,16 @@ val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize
                     return true
                 }
 
-                // Кнопка "Поставить"
-                val placeDx = x - placeBtnX
-                val placeDy = y - placeBtnY
-                val placeDist = Math.sqrt((placeDx * placeDx + placeDy * placeDy).toDouble()).toFloat()
+                // Кнопка атаки
+                val attackDx = x - attackBtnX
+                val attackDy = y - attackBtnY
+                val attackDist = Math.sqrt((attackDx * attackDx + attackDy * attackDy).toDouble()).toFloat()
 
-                if (placeDist <= placeBtnRadius * 1.3f) {
-                    placeBtnPressed = true
-                    placeTouchId = event.getPointerId(0)
-                    placeBlockInFront()
+                if (attackDist <= attackBtnRadius * 1.3f) {
+                    attackBtnPressed = true
+                    attackTouchId = event.getPointerId(0)
+                    doAttack()
                     return true
-                }
-
-                // Инвентарь
-                for (i in 0 until slotRects.size) {
-                    if (slotRects[i].contains(x, y)) {
-                        selectedSlot = i
-                        return true
-                    }
                 }
 
                 // Джойстик
@@ -620,7 +682,7 @@ val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize
                     return true
                 }
 
-                // Иначе — поворот (всегда работает)
+                // Иначе — поворот
                 rotateActive = true
                 rotateTouchId = event.getPointerId(0)
                 lastRotateX = x
@@ -644,14 +706,14 @@ val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize
                     return true
                 }
 
-                val placeDx = x - placeBtnX
-                val placeDy = y - placeBtnY
-                val placeDist = Math.sqrt((placeDx * placeDx + placeDy * placeDy).toDouble()).toFloat()
+                val attackDx = x - attackBtnX
+                val attackDy = y - attackBtnY
+                val attackDist = Math.sqrt((attackDx * attackDx + attackDy * attackDy).toDouble()).toFloat()
 
-                if (placeDist <= placeBtnRadius * 1.3f && !placeBtnPressed) {
-                    placeBtnPressed = true
-                    placeTouchId = id
-                    placeBlockInFront()
+                if (attackDist <= attackBtnRadius * 1.3f && !attackBtnPressed) {
+                    attackBtnPressed = true
+                    attackTouchId = id
+                    doAttack()
                     return true
                 }
 
@@ -713,9 +775,9 @@ val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize
                     jumpBtnPressed = false
                     jumpTouchId = -1
                 }
-                if (id == placeTouchId) {
-                    placeBtnPressed = false
-                    placeTouchId = -1
+                if (id == attackTouchId) {
+                    attackBtnPressed = false
+                    attackTouchId = -1
                 }
             }
 
@@ -723,11 +785,11 @@ val gridZ = floor((blockZ / cubeSize).toDouble()).toFloat() * cubeSize
                 joyActive = false
                 rotateActive = false
                 jumpBtnPressed = false
-                placeBtnPressed = false
+                attackBtnPressed = false
                 joyTouchId = -1
                 rotateTouchId = -1
                 jumpTouchId = -1
-                placeTouchId = -1
+                attackTouchId = -1
                 joyDeltaX = 0f
                 joyDeltaY = 0f
                 joyKnobX = joyCenterX
