@@ -118,8 +118,8 @@ class GameView @JvmOverloads constructor(
             val dist = 500f + (i % 5) * 250f
             val x = cos(angle) * dist
             val z = sin(angle) * dist
-            val y = 50f + (i % 3) * 40f
             val size = 100f + (i % 3) * 50f
+            val y = size / 2f   // центр куба — на высоте половины размера
             val color = colors[i % colors.size]
             cubes.add(Cube(x, y, z, size, color))
         }
@@ -161,14 +161,14 @@ class GameView @JvmOverloads constructor(
         val s = cube.size / 2f
 
         val vertices = arrayOf(
-            floatArrayOf(cube.x - s, cube.y - s, cube.z - s), // 0
-            floatArrayOf(cube.x + s, cube.y - s, cube.z - s), // 1
-            floatArrayOf(cube.x + s, cube.y - s, cube.z + s), // 2
-            floatArrayOf(cube.x - s, cube.y - s, cube.z + s), // 3
-            floatArrayOf(cube.x - s, cube.y + s, cube.z - s), // 4
-            floatArrayOf(cube.x + s, cube.y + s, cube.z - s), // 5
-            floatArrayOf(cube.x + s, cube.y + s, cube.z + s), // 6
-            floatArrayOf(cube.x - s, cube.y + s, cube.z + s)  // 7
+            floatArrayOf(cube.x - s, cube.y - s, cube.z - s),
+            floatArrayOf(cube.x + s, cube.y - s, cube.z - s),
+            floatArrayOf(cube.x + s, cube.y - s, cube.z + s),
+            floatArrayOf(cube.x - s, cube.y - s, cube.z + s),
+            floatArrayOf(cube.x - s, cube.y + s, cube.z - s),
+            floatArrayOf(cube.x + s, cube.y + s, cube.z - s),
+            floatArrayOf(cube.x + s, cube.y + s, cube.z + s),
+            floatArrayOf(cube.x - s, cube.y + s, cube.z + s)
         )
 
         val projected = arrayOfNulls<FloatArray>(8)
@@ -178,25 +178,24 @@ class GameView @JvmOverloads constructor(
 
         if (projected.any { it == null }) return
 
-        // Собираем все 6 граней с их средней глубиной
         val faces = mutableListOf<Array<Any>>()
 
-        // Передняя
+        // Передняя (0,1,5,4)
         faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[5]!!, projected[4]!!,
             (projected[0]!![2] + projected[1]!![2] + projected[5]!![2] + projected[4]!![2]) / 4f))
-        // Правая
+        // Правая (1,2,6,5)
         faces.add(arrayOf(projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!,
             (projected[1]!![2] + projected[2]!![2] + projected[6]!![2] + projected[5]!![2]) / 4f))
-        // Задняя
+        // Задняя (3,2,6,7)
         faces.add(arrayOf(projected[3]!!, projected[2]!!, projected[6]!!, projected[7]!!,
             (projected[3]!![2] + projected[2]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
-        // Левая
+        // Левая (0,3,7,4)
         faces.add(arrayOf(projected[0]!!, projected[3]!!, projected[7]!!, projected[4]!!,
             (projected[0]!![2] + projected[3]!![2] + projected[7]!![2] + projected[4]!![2]) / 4f))
-        // Верхняя
+        // Верхняя (4,5,6,7)
         faces.add(arrayOf(projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!,
             (projected[4]!![2] + projected[5]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
-        // Нижняя
+        // Нижняя (0,1,2,3)
         faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[2]!!, projected[3]!!,
             (projected[0]!![2] + projected[1]!![2] + projected[2]!![2] + projected[3]!![2]) / 4f))
 
@@ -246,7 +245,7 @@ class GameView @JvmOverloads constructor(
 
         updateCamera()
 
-        // Земля
+        // Земля (вокруг игрока)
         drawGround(canvas)
 
         // Сортируем кубы — дальние раньше
@@ -273,9 +272,10 @@ class GameView @JvmOverloads constructor(
         invalidate()
     }
 
+    // Земля — вокруг игрока (не зависит от позиции, чтобы не было дыр)
     private fun drawGround(canvas: Canvas) {
         val gridSize = 500f
-        val range = 4
+        val range = 6  // 13 x 13 клеток
 
         val groundPaint = Paint().apply {
             style = Paint.Style.FILL
@@ -287,10 +287,14 @@ class GameView @JvmOverloads constructor(
             strokeWidth = 2f
         }
 
+        // Центр сетки — всегда "под игроком" (но в целых клетках)
+        val centerX = (playerX / gridSize).toInt() * gridSize
+        val centerZ = (playerZ / gridSize).toInt() * gridSize
+
         for (ix in -range..range) {
             for (iz in -range..range) {
-                val x = ix * gridSize
-                val z = iz * gridSize
+                val x = centerX + ix * gridSize
+                val z = centerZ + iz * gridSize
                 val half = gridSize / 2f
 
                 val p1 = project(x - half, 0f, z - half) ?: continue
@@ -338,7 +342,7 @@ class GameView @JvmOverloads constructor(
             val moveX = joyDeltaX
             val moveZ = -joyDeltaY
 
-            // Преобразуем локальные координаты в мировые
+            // Преобразуем в мировые координаты (относительно камеры)
             val worldX = moveX * cosYaw + moveZ * sinYaw
             val worldZ = -moveX * sinYaw + moveZ * cosYaw
 
@@ -455,4 +459,3 @@ class GameView @JvmOverloads constructor(
         joyDeltaY = dy / joyRadius
     }
 }
-
