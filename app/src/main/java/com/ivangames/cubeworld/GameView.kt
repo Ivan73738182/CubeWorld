@@ -538,7 +538,7 @@ class GameView @JvmOverloads constructor(
     private fun placeBlockInFront() {
         val yawRad = Math.toRadians(camYaw.toDouble())
         val dirX = -sin(yawRad).toFloat()
-        val dirZ = -cos(yawRad).toFloat()
+        val dirZ = cos(yawRad).toFloat()
 
         val dist = 250f
 
