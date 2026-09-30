@@ -19,18 +19,23 @@ class GameView @JvmOverloads constructor(
     private var screenW = 0f
     private var screenH = 0f
 
-    // Камера
+    // Камера (от третьего лица)
     private var camX = 0f
-    private var camY = 120f
+    private var camY = 200f
     private var camZ = 0f
     private var camYaw = 0f
-    private var camPitch = 0f
+    private var camPitch = -15f
 
     // Персонаж
     private var playerX = 0f
     private var playerY = 0f
     private var playerZ = 0f
-    private val eyeHeight = 120f
+    private val playerWidth = 40f
+    private val playerHeight = 120f
+
+    // Камера — сзади и сверху
+    private val camDistance = 250f
+    private val camHeightOffset = 150f
 
     // Джойстик
     private var joyCenterX = 0f
@@ -112,14 +117,13 @@ class GameView @JvmOverloads constructor(
             Color.parseColor("#2ECC71")
         )
 
-        // Кубы вокруг игрока
         for (i in 0 until 30) {
             val angle = i * (360f / 30f) * Math.PI.toFloat() / 180f
-            val dist = 500f + (i % 5) * 250f
+            val dist = 400f + (i % 5) * 250f
             val x = cos(angle) * dist
             val z = sin(angle) * dist
             val size = 100f + (i % 3) * 50f
-            val y = size / 2f   // центр куба — на высоте половины размера
+            val y = size / 2f
             val color = colors[i % colors.size]
             cubes.add(Cube(x, y, z, size, color))
         }
@@ -157,18 +161,24 @@ class GameView @JvmOverloads constructor(
 
     // ============ РИСОВАНИЕ КУБА ============
 
-    private fun drawCube(canvas: Canvas, cube: Cube) {
-        val s = cube.size / 2f
+    private fun drawBox(canvas: Canvas,
+                        x: Float, y: Float, z: Float,
+                        w: Float, h: Float, d: Float,
+                        color: Int) {
+
+        val hw = w / 2f
+        val hh = h / 2f
+        val hd = d / 2f
 
         val vertices = arrayOf(
-            floatArrayOf(cube.x - s, cube.y - s, cube.z - s),
-            floatArrayOf(cube.x + s, cube.y - s, cube.z - s),
-            floatArrayOf(cube.x + s, cube.y - s, cube.z + s),
-            floatArrayOf(cube.x - s, cube.y - s, cube.z + s),
-            floatArrayOf(cube.x - s, cube.y + s, cube.z - s),
-            floatArrayOf(cube.x + s, cube.y + s, cube.z - s),
-            floatArrayOf(cube.x + s, cube.y + s, cube.z + s),
-            floatArrayOf(cube.x - s, cube.y + s, cube.z + s)
+            floatArrayOf(x - hw, y - hh, z - hd),
+            floatArrayOf(x + hw, y - hh, z - hd),
+            floatArrayOf(x + hw, y - hh, z + hd),
+            floatArrayOf(x - hw, y - hh, z + hd),
+            floatArrayOf(x - hw, y + hh, z - hd),
+            floatArrayOf(x + hw, y + hh, z - hd),
+            floatArrayOf(x + hw, y + hh, z + hd),
+            floatArrayOf(x - hw, y + hh, z + hd)
         )
 
         val projected = arrayOfNulls<FloatArray>(8)
@@ -179,31 +189,23 @@ class GameView @JvmOverloads constructor(
         if (projected.any { it == null }) return
 
         val faces = mutableListOf<Array<Any>>()
-
-        // Передняя (0,1,5,4)
         faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[5]!!, projected[4]!!,
             (projected[0]!![2] + projected[1]!![2] + projected[5]!![2] + projected[4]!![2]) / 4f))
-        // Правая (1,2,6,5)
         faces.add(arrayOf(projected[1]!!, projected[2]!!, projected[6]!!, projected[5]!!,
             (projected[1]!![2] + projected[2]!![2] + projected[6]!![2] + projected[5]!![2]) / 4f))
-        // Задняя (3,2,6,7)
         faces.add(arrayOf(projected[3]!!, projected[2]!!, projected[6]!!, projected[7]!!,
             (projected[3]!![2] + projected[2]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
-        // Левая (0,3,7,4)
         faces.add(arrayOf(projected[0]!!, projected[3]!!, projected[7]!!, projected[4]!!,
             (projected[0]!![2] + projected[3]!![2] + projected[7]!![2] + projected[4]!![2]) / 4f))
-        // Верхняя (4,5,6,7)
         faces.add(arrayOf(projected[4]!!, projected[5]!!, projected[6]!!, projected[7]!!,
             (projected[4]!![2] + projected[5]!![2] + projected[6]!![2] + projected[7]!![2]) / 4f))
-        // Нижняя (0,1,2,3)
         faces.add(arrayOf(projected[0]!!, projected[1]!!, projected[2]!!, projected[3]!!,
             (projected[0]!![2] + projected[1]!![2] + projected[2]!![2] + projected[3]!![2]) / 4f))
 
-        // Сортируем по глубине — дальние раньше
         val sorted = faces.sortedByDescending { it[4] as Float }
 
         val paint = Paint().apply {
-            color = cube.color
+            this.color = color
             style = Paint.Style.FILL
             isAntiAlias = true
         }
@@ -227,12 +229,19 @@ class GameView @JvmOverloads constructor(
         path.close()
         canvas.drawPath(path, paint)
     }
-    // ============ КАМЕРА ============
+    // ============ КАМЕРА (от третьего лица) ============
 
     private fun updateCamera() {
-        camX = playerX
-        camY = playerY + eyeHeight
-        camZ = playerZ
+        // Камера сзади и сверху за персонажем
+        val yawRad = Math.toRadians(camYaw.toDouble())
+
+        // Смещение камеры относительно персонажа
+        val dx = -sin(yawRad).toFloat() * camDistance
+        val dz = -cos(yawRad).toFloat() * camDistance
+
+        camX = playerX + dx
+        camZ = playerZ + dz
+        camY = playerY + camHeightOffset
     }
 
     // ============ РИСОВАНИЕ СЦЕНЫ ============
@@ -245,7 +254,7 @@ class GameView @JvmOverloads constructor(
 
         updateCamera()
 
-        // Земля (вокруг игрока)
+        // Земля
         drawGround(canvas)
 
         // Сортируем кубы — дальние раньше
@@ -259,23 +268,35 @@ class GameView @JvmOverloads constructor(
             .map { it.first }
 
         for (cube in sortedCubes) {
-            drawCube(canvas, cube)
+            drawBox(canvas, cube.x, cube.y, cube.z, cube.size, cube.size, cube.size, cube.color)
         }
+
+        // Персонаж (длинный куб 40x120x40)
+        drawBox(
+            canvas,
+            playerX,
+            playerY + playerHeight / 2f,
+            playerZ,
+            playerWidth,
+            playerHeight,
+            playerWidth,
+            Color.parseColor("#FFFFFF")
+        )
 
         // Джойстик
         drawJoystick(canvas)
 
-        // Точка прицела
+        // Прицел
         drawCrosshair(canvas)
 
         update()
         invalidate()
     }
 
-    // Земля — вокруг игрока (не зависит от позиции, чтобы не было дыр)
+    // Земля — вокруг игрока
     private fun drawGround(canvas: Canvas) {
         val gridSize = 500f
-        val range = 6  // 13 x 13 клеток
+        val range = 6
 
         val groundPaint = Paint().apply {
             style = Paint.Style.FILL
@@ -287,7 +308,6 @@ class GameView @JvmOverloads constructor(
             strokeWidth = 2f
         }
 
-        // Центр сетки — всегда "под игроком" (но в целых клетках)
         val centerX = (playerX / gridSize).toInt() * gridSize
         val centerZ = (playerZ / gridSize).toInt() * gridSize
 
@@ -342,7 +362,7 @@ class GameView @JvmOverloads constructor(
             val moveX = joyDeltaX
             val moveZ = -joyDeltaY
 
-            // Преобразуем в мировые координаты (относительно камеры)
+            // Преобразуем локальные координаты в мировые (относительно камеры)
             val worldX = moveX * cosYaw + moveZ * sinYaw
             val worldZ = -moveX * sinYaw + moveZ * cosYaw
 
@@ -403,7 +423,7 @@ class GameView @JvmOverloads constructor(
                         val dy = y - lastRotateY
                         camYaw += dx * 0.3f
                         camPitch -= dy * 0.3f
-                        camPitch = camPitch.coerceIn(-60f, 60f)
+                        camPitch = camPitch.coerceIn(-60f, 20f)
                         lastRotateX = x
                         lastRotateY = y
                     }
@@ -459,3 +479,4 @@ class GameView @JvmOverloads constructor(
         joyDeltaY = dy / joyRadius
     }
 }
+
