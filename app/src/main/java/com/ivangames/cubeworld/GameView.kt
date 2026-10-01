@@ -200,7 +200,7 @@ class GameView @JvmOverloads constructor(
     }
     private val statsTextPaint = Paint().apply {
         color = Color.WHITE
-        textSize = 28f
+        textSize = 26f
         isAntiAlias = true
         isFakeBoldText = true
         textAlign = Paint.Align.RIGHT
@@ -652,16 +652,17 @@ private fun drawEnemyHpBar(canvas: Canvas, enemy: Enemy) {
     canvas.drawRect(left, top, left + barWidth, top + barHeight, borderPaint)
 }
 
-// ===== СТАТИСТИКА СВЕРХУ СПРАВА =====
+// ===== СТАТИСТИКА (СДВИНУТА НИЖЕ) =====
 private fun drawStats(canvas: Canvas) {
     val margin = 60f
     val x = screenW - margin
 
+    // Уровень
     canvas.drawText("Уровень: $playerLevel", x, margin + 40f, statsTextPaint)
+    // XP
     canvas.drawText("XP: $playerXp / $xpPerLevel", x, margin + 80f, statsTextPaint)
-    canvas.drawText("💰 $playerCoins", x, margin + 120f, statsTextPaint)
-    canvas.drawText("⚔ $playerKills", x, margin + 160f, statsTextPaint)
 
+    // Полоска XP
     val xpBarWidth = 300f
     val xpBarHeight = 12f
     val xpBarX = screenW - margin - xpBarWidth
@@ -671,6 +672,10 @@ private fun drawStats(canvas: Canvas) {
     val fill = playerXp.toFloat() / xpPerLevel * xpBarWidth
     canvas.drawRect(xpBarX, xpBarY, xpBarX + fill, xpBarY + xpBarHeight, xpBarFillPaint)
     canvas.drawRect(xpBarX, xpBarY, xpBarX + xpBarWidth, xpBarY + xpBarHeight, xpBarBorderPaint)
+
+    // Монеты и убийства — НИЖЕ (с отступом)
+    canvas.drawText("💰 $playerCoins", x, margin + 170f, statsTextPaint)
+    canvas.drawText("⚔ $playerKills", x, margin + 210f, statsTextPaint)
 }
 
 // ===== ЧАСТИЦЫ =====
@@ -700,7 +705,6 @@ private fun drawParticles(canvas: Canvas) {
     }
 }
 
-// ===== ПРОГРЕСС =====
 private fun gainXp(amount: Int) {
     playerXp += amount
     while (playerXp >= xpPerLevel) {
@@ -719,7 +723,6 @@ private fun onEnemyKilled(enemy: Enemy) {
     // ============ ФИЗИКА ============
 
     private fun update() {
-        // Движение игрока
         if (joyActive) {
             val yawRad = Math.toRadians(camYaw.toDouble())
             val cosYaw = cos(yawRad).toFloat()
@@ -734,17 +737,16 @@ private fun onEnemyKilled(enemy: Enemy) {
             val speed = 12f
 
             val newX = playerX + worldX * speed
-            if (!collidesWithWall(newX, playerZ)) {
+            if (!collidesWithWall(newX, playerZ) && !collidesWithEnemy(newX, playerZ)) {
                 playerX = newX
             }
 
             val newZ = playerZ + worldZ * speed
-            if (!collidesWithWall(playerX, newZ)) {
+            if (!collidesWithWall(playerX, newZ) && !collidesWithEnemy(playerX, newZ)) {
                 playerZ = newZ
             }
         }
 
-        // Гравитация
         velocityY -= gravity
         playerY += velocityY
 
@@ -756,7 +758,6 @@ private fun onEnemyKilled(enemy: Enemy) {
             onGround = false
         }
 
-        // ===== ВРАГИ =====
         for (enemy in enemies) {
             if (enemy.hp <= 0) continue
 
@@ -778,7 +779,6 @@ private fun onEnemyKilled(enemy: Enemy) {
                     enemy.z = newZ
                 }
             } else {
-                // Враг бьёт игрока
                 if (enemy.attackCooldown <= 0) {
                     playerHp -= 10
                     if (playerHp < 0) playerHp = 0
@@ -789,7 +789,6 @@ private fun onEnemyKilled(enemy: Enemy) {
             if (enemy.attackCooldown > 0) enemy.attackCooldown--
         }
 
-        // ===== ЧАСТИЦЫ =====
         val iter = particles.iterator()
         while (iter.hasNext()) {
             val p = iter.next()
@@ -801,9 +800,7 @@ private fun onEnemyKilled(enemy: Enemy) {
             if (p.life <= 0) iter.remove()
         }
 
-        if (attackAnimTimer > 0) {
-            attackAnimTimer--
-        }
+        if (attackAnimTimer > 0) attackAnimTimer--
     }
 
     private fun collidesWithWall(x: Float, z: Float): Boolean {
@@ -811,7 +808,6 @@ private fun onEnemyKilled(enemy: Enemy) {
             val halfSize = wall.size / 2f
             val dx = Math.abs(x - wall.x)
             val dz = Math.abs(z - wall.z)
-
             if (dx < halfSize + playerRadius && dz < halfSize + playerRadius) {
                 return true
             }
@@ -819,7 +815,21 @@ private fun onEnemyKilled(enemy: Enemy) {
         return false
     }
 
-    // ============ АТАКА (СТРОГО ПО ПРИЦЕЛУ) ============
+    // ТВЁРДЫЕ ВРАГИ
+    private fun collidesWithEnemy(x: Float, z: Float): Boolean {
+        for (enemy in enemies) {
+            if (enemy.hp <= 0) continue
+            val halfSize = enemy.size / 2f
+            val dx = Math.abs(x - enemy.x)
+            val dz = Math.abs(z - enemy.z)
+            if (dx < halfSize + playerRadius && dz < halfSize + playerRadius) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // ============ АТАКА (ТОЧНО ПО ЦЕНТРУ) ============
 
     private fun doAttack() {
         attackAnimTimer = 15
@@ -832,7 +842,6 @@ private fun onEnemyKilled(enemy: Enemy) {
         val cosPitch = cos(pitchRad).toFloat()
         val sinPitch = sin(pitchRad).toFloat()
 
-        // Направление луча взгляда в 3D
         val dirX = -sinYaw * cosPitch
         val dirY = sinPitch
         val dirZ = cosYaw * cosPitch
@@ -851,17 +860,15 @@ private fun onEnemyKilled(enemy: Enemy) {
             val ny = toY / dist
             val nz = toZ / dist
 
-            // Скалярное произведение — точность попадания
             val dot = nx * dirX + ny * dirY + nz * dirZ
 
-            // cos(20°) ≈ 0.94 — узкий конус
-            if (dot > 0.94f) {
+            // Очень узкий конус — точно по прицелу
+            if (dot > 0.97f) {
                 enemy.hp -= 25
                 if (enemy.hp < 0) enemy.hp = 0
 
                 spawnParticles(enemy.x, enemy.y + enemy.size / 4, enemy.z)
 
-                // Отброс
                 val dx = enemy.x - playerX
                 val dz = enemy.z - playerZ
                 val d = Math.sqrt((dx * dx + dz * dz).toDouble()).toFloat()
@@ -870,7 +877,6 @@ private fun onEnemyKilled(enemy: Enemy) {
                     enemy.z += dz / d * 50f
                 }
 
-                // Если убит — прогресс
                 if (enemy.hp <= 0) {
                     onEnemyKilled(enemy)
                 }
